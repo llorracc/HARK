@@ -852,7 +852,7 @@ class ConstantFunction(MetricObject):
     derivativeXX = derivative
 
 
-class LinearInterp(HARKinterpolator1D):
+class LinearInterp(HARKinterpolator1D):  # anchor: linear-interp-class
     """
     A "from scratch" 1D linear interpolation class.  Allows for linear or decay
     extrapolation (approaching a limiting linear function from below).
@@ -1045,7 +1045,7 @@ class LinearInterp(HARKinterpolator1D):
         return y, dydx
 
 
-class CubicInterp(HARKinterpolator1D):
+class CubicInterp(HARKinterpolator1D):  # anchor: cubic-interp-class
     """
     An interpolating function using piecewise cubic splines.  Matches level and
     slope of 1D function at gridpoints, smoothly interpolating in between.
@@ -1213,7 +1213,7 @@ class CubicInterp(HARKinterpolator1D):
         return y, dydx
 
 
-class CubicHermiteInterp(HARKinterpolator1D):
+class CubicHermiteInterp(HARKinterpolator1D):  # anchor: cubic-hermite-interp-class
     """
     An interpolating function using piecewise cubic splines.  Matches level and
     slope of 1D function at gridpoints, smoothly interpolating in between.
@@ -1976,7 +1976,7 @@ class _Envelope1D(HARKinterpolator1D):
         return y, dydx
 
 
-class LowerEnvelope(_Envelope1D):
+class LowerEnvelope(_Envelope1D):  # anchor: lower-envelope-class
     """
     The lower envelope of a finite set of 1D functions, each of which can be of
     any class that has the methods __call__, derivative, and eval_with_derivative.
@@ -3490,7 +3490,7 @@ def calc_log_sum(Vals, sigma):
 ###############################################################################
 
 
-class ValueFuncCRRA(MetricObject):
+class ValueFuncCRRA(MetricObject):  # anchor: value-func-crra-class
     """
     A class for representing a value function.  The underlying interpolation is
     in the space of (state,u_inv(v)); this class "re-curves" to the value function.
@@ -3568,7 +3568,7 @@ def _eval_c_and_mpc(cFunc, *cFuncArgs):
     )
 
 
-class MargValueFuncCRRA(MetricObject):
+class MargValueFuncCRRA(MetricObject):  # anchor: marg-value-func-crra-class
     """
     A class for representing a marginal value function in models where the
     standard envelope condition of dvdm(state) = u'(c(state)) holds (with CRRA utility).
@@ -3637,7 +3637,7 @@ class MargValueFuncCRRA(MetricObject):
         return MPC * CRRAutilityPP(c, rho=self.CRRA)
 
 
-class MargMargValueFuncCRRA(MetricObject):
+class MargMargValueFuncCRRA(MetricObject):  # anchor: marg-marg-value-func-crra-class
     """
     A class for representing a marginal marginal value function in models where
     the standard envelope condition of dvdm = u'(c(state)) holds (with CRRA utility).

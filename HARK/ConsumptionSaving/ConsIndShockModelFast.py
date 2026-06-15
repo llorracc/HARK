@@ -1188,7 +1188,7 @@ class PerfForesightConsumerTypeFast(PerfForesightConsumerType):
     solution_terminal_class = PerfForesightSolution
     default_ = {
         "params": init_perfect_foresight_fast,
-        "solver": make_one_period_oo_solver(ConsPerfForesightSolverFast),
+        "solver": make_one_period_oo_solver(ConsPerfForesightSolverFast),  # anchor: fast-pf-solver-wiring
         "model": "ConsPerfForesight.yaml",
         "track_vars": ["aNrm", "cNrm", "mNrm", "pLvl"],
     }
@@ -1291,7 +1291,7 @@ class PerfForesightConsumerTypeFast(PerfForesightConsumerType):
 ###############################################################################
 
 
-def select_fast_solver(CubicBool, vFuncBool):
+def select_fast_solver(CubicBool, vFuncBool):  # anchor: fast-select-solver
     if (not CubicBool) and (not vFuncBool):
         solver = ConsIndShockSolverBasicFast
     else:  # Use the "advanced" solver if either is requested
@@ -1303,11 +1303,11 @@ def select_fast_solver(CubicBool, vFuncBool):
 init_idiosyncratic_shocks_fast = init_idiosyncratic_shocks.copy()
 ind_shock_fast_constructor_dict = init_idiosyncratic_shocks["constructors"].copy()
 ind_shock_fast_constructor_dict["solution_terminal"] = make_solution_terminal_fast
-ind_shock_fast_constructor_dict["solve_one_period"] = select_fast_solver
+ind_shock_fast_constructor_dict["solve_one_period"] = select_fast_solver  # anchor: fast-constructor-wiring
 init_idiosyncratic_shocks_fast["constructors"] = ind_shock_fast_constructor_dict
 
 
-class IndShockConsumerTypeFast(IndShockConsumerType, PerfForesightConsumerTypeFast):
+class IndShockConsumerTypeFast(IndShockConsumerType, PerfForesightConsumerTypeFast):  # anchor: fast-type-class
     r"""
     A version of the idiosyncratic shock consumer type sped up by numba.
 
@@ -1321,7 +1321,7 @@ class IndShockConsumerTypeFast(IndShockConsumerType, PerfForesightConsumerTypeFa
     solution_terminal_class = IndShockSolution
     default_ = {
         "params": init_idiosyncratic_shocks_fast,
-        "solver": NullFunc(),
+        "solver": NullFunc(),  # anchor: fast-solver-placeholder
         "model": "ConsIndShock.yaml",
         "track_vars": ["aNrm", "cNrm", "mNrm", "pLvl"],
     }
@@ -1359,7 +1359,7 @@ class IndShockConsumerTypeFast(IndShockConsumerType, PerfForesightConsumerTypeFa
         # Call parent's pre_solve
         super().pre_solve()
 
-    def post_solve(self):
+    def post_solve(self):  # anchor: fast-post-solve-rewrap
         self.solution_fast = deepcopy(self.solution)
 
         if self.cycles == 0:

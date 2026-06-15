@@ -1183,7 +1183,7 @@ class AgentType(Model):
         if solution_terminal is None:
             solution_terminal = NullFunc()
 
-        self.solve_one_period = self.default_["solver"]  # NOQA
+        self.solve_one_period = self.default_["solver"]  # anchor: solver-attr-init  # NOQA
         self.solution_terminal = solution_terminal  # NOQA
         self.pseudo_terminal = pseudo_terminal  # NOQA
         self.tolerance = tolerance  # NOQA
@@ -2241,7 +2241,7 @@ class AgentType(Model):
         return calc_shock_response_manually(self, shock, outcomes, grids, **kwargs)
 
 
-def solve_agent(agent, verbose, from_solution=None, from_t=None):
+def solve_agent(agent, verbose, from_solution=None, from_t=None):  # anchor: solve-agent
     """
     Solve the dynamic model for one agent type using backwards induction. This
     function iterates on "cycles" of an agent's model either a given number of
@@ -2358,7 +2358,7 @@ def solve_agent(agent, verbose, from_solution=None, from_t=None):
     return solution
 
 
-def solve_one_cycle(agent, solution_last, from_t):
+def solve_one_cycle(agent, solution_last, from_t):  # anchor: solve-one-cycle
     """
     Solve one "cycle" of the dynamic model for one agent type.  This function
     iterates over the periods within an agent's cycle, updating the time-varying
@@ -2404,7 +2404,7 @@ def solve_one_cycle(agent, solution_last, from_t):
             if hasattr(solve_one_period, "solver_args"):
                 these_args = solve_one_period.solver_args
             else:
-                these_args = get_arg_names(solve_one_period)
+                these_args = get_arg_names(solve_one_period)  # anchor: solver-arg-binding
 
             # Make a temporary dictionary for this period
             temp_pars = agent.parameters[k]
@@ -2445,7 +2445,7 @@ def solve_one_cycle(agent, solution_last, from_t):
             if hasattr(solve_one_period, "solver_args"):
                 these_args = solve_one_period.solver_args
             else:
-                these_args = get_arg_names(solve_one_period)
+                these_args = get_arg_names(solve_one_period)  # anchor: solver-arg-binding-cycle
 
             # Update time-varying single period inputs
             for name in agent.time_vary:
@@ -2465,7 +2465,7 @@ def solve_one_cycle(agent, solution_last, from_t):
     return solution_cycle
 
 
-def make_one_period_oo_solver(solver_class):
+def make_one_period_oo_solver(solver_class):  # anchor: make-oo-solver
     """
     Returns a function that solves a single period consumption-saving
     problem.

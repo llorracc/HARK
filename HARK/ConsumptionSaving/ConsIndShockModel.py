@@ -96,7 +96,7 @@ utilityP_invP = CRRAutilityP_invP
 # =====================================================================
 
 
-class ConsumerSolution(MetricObject):
+class ConsumerSolution(MetricObject):  # anchor: consumer-solution-class
     r"""
     A class representing the solution of a single period of a consumption-saving
     problem.  The solution must include a consumption function and marginal
@@ -134,7 +134,7 @@ class ConsumerSolution(MetricObject):
 
     """
 
-    distance_criteria = ["vPfunc"]
+    distance_criteria = ["vPfunc"]  # anchor: solution-distance-criteria
 
     def __init__(
         self,
@@ -266,7 +266,7 @@ def make_lognormal_pLvl_init_dstn(pLogInitMean, pLogInitStd, pLvlInitCount, RNG)
 # =====================================================================
 
 
-def calc_human_wealth(h_nrm_next, perm_gro_fac, rfree, ex_inc_next):
+def calc_human_wealth(h_nrm_next, perm_gro_fac, rfree, ex_inc_next):  # anchor: calc-human-wealth
     """Calculate human wealth this period given human wealth next period.
 
     Args:
@@ -301,7 +301,7 @@ def calc_mpc_min(mpc_min_next, pat_fac):
     return 1.0 / (1.0 + pat_fac / mpc_min_next)
 
 
-def solve_one_period_ConsPF(
+def solve_one_period_ConsPF(  # anchor: solve-one-period-pf
     solution_next,
     DiscFac,
     LivPrb,
@@ -536,7 +536,7 @@ def calc_mpc_max(
     return 1.0 / (1.0 + temp_fac / mpc_max_next)
 
 
-def calc_m_nrm_next(shock, a, rfree, perm_gro_fac):
+def calc_m_nrm_next(shock, a, rfree, perm_gro_fac):  # anchor: calc-m-nrm-next
     """Calculate normalized market resources next period.
 
     Args:
@@ -565,7 +565,7 @@ def calc_v_next(shock, a, rfree, crra, perm_gro_fac, vfunc_next):
     ) * vfunc_next(calc_m_nrm_next(shock, a, rfree, perm_gro_fac))
 
 
-def calc_vp_next(shock, a, rfree, crra, perm_gro_fac, vp_func_next):
+def calc_vp_next(shock, a, rfree, crra, perm_gro_fac, vp_func_next):  # anchor: calc-vp-next
     """Calculate the continuation marginal value function with respect to
     end-of-period assets.
 
@@ -599,7 +599,7 @@ def calc_vpp_next(shock, a, rfree, crra, perm_gro_fac, vppfunc_next):
     )
 
 
-def solve_one_period_ConsIndShock(
+def solve_one_period_ConsIndShock(  # anchor: solve-one-period-indshock
     solution_next,
     IncShkDstn,
     LivPrb,
@@ -659,8 +659,8 @@ def solve_one_period_ConsIndShock(
 
     # Calculate the probability that we get the worst possible income draw
     WorstIncPrb = calc_worst_inc_prob(IncShkDstn)
-    Ex_IncNext = expected(lambda x: x["PermShk"] * x["TranShk"], IncShkDstn)
-    hNrmNow = calc_human_wealth(solution_next.hNrm, PermGroFac, Rfree, Ex_IncNext)
+    Ex_IncNext = expected(lambda x: x["PermShk"] * x["TranShk"], IncShkDstn)  # anchor: ex-income
+    hNrmNow = calc_human_wealth(solution_next.hNrm, PermGroFac, Rfree, Ex_IncNext)  # anchor: human-wealth-now
 
     # Unpack next period's (marginal) value function
     vFuncNext = solution_next.vFunc  # This is None when vFuncBool is False
@@ -668,12 +668,12 @@ def solve_one_period_ConsIndShock(
     vPPfuncNext = solution_next.vPPfunc  # This is None when CubicBool is False
 
     # Calculate the minimum allowable value of money resources in this period
-    BoroCnstNat = calc_boro_const_nat(
+    BoroCnstNat = calc_boro_const_nat(  # anchor: boro-cnst-nat
         solution_next.mNrmMin, IncShkDstn, Rfree, PermGroFac
     )
     # Set the minimum allowable (normalized) market resources based on the natural
     # and artificial borrowing constraints
-    mNrmMinNow = calc_m_nrm_min(BoroCnstArt, BoroCnstNat)
+    mNrmMinNow = calc_m_nrm_min(BoroCnstArt, BoroCnstNat)  # anchor: m-nrm-min
 
     # Update the bounding MPCs and PDV of human wealth:
     PatFac = calc_patience_factor(Rfree, DiscFacEff, CRRA)
@@ -689,25 +689,25 @@ def solve_one_period_ConsIndShock(
     cFuncLimitSlope = MPCminNow
 
     # Define the borrowing-constrained consumption function
-    cFuncNowCnst = LinearInterp(
+    cFuncNowCnst = LinearInterp(  # anchor: cfunc-constrained
         np.array([mNrmMinNow, mNrmMinNow + 1.0]),
         np.array([0.0, 1.0]),
     )
 
     # Construct the assets grid by adjusting aXtra by the natural borrowing constraint
-    aNrmNow = np.asarray(aXtraGrid) + BoroCnstNat
+    aNrmNow = np.asarray(aXtraGrid) + BoroCnstNat  # anchor: end-of-period-assets-grid
 
     # Calculate end-of-period marginal value of assets at each gridpoint
-    vPfacEff = DiscFacEff * Rfree * PermGroFac ** (-CRRA)
-    EndOfPrdvP = vPfacEff * expected(
+    vPfacEff = DiscFacEff * Rfree * PermGroFac ** (-CRRA)  # anchor: vp-disc-factor
+    EndOfPrdvP = vPfacEff * expected(  # anchor: expect-v-prime
         calc_vp_next,
         IncShkDstn,
         args=(aNrmNow, Rfree, CRRA, PermGroFac, vPfuncNext),
     )
 
     # Invert the first order condition to find optimal cNrm from each aNrm gridpoint
-    cNrmNow = uFunc.derinv(EndOfPrdvP, order=(1, 0))
-    mNrmNow = cNrmNow + aNrmNow  # Endogenous mNrm gridpoints
+    cNrmNow = uFunc.derinv(EndOfPrdvP, order=(1, 0))  # anchor: egm-foc-invert
+    mNrmNow = cNrmNow + aNrmNow  # Endogenous mNrm gridpoints  # anchor: egm-endogenous-m
 
     # Limiting consumption is zero as m approaches mNrmMin
     c_for_interpolation = np.insert(cNrmNow, 0, 0.0)
@@ -727,7 +727,7 @@ def solve_one_period_ConsIndShock(
         MPC_for_interpolation = np.insert(MPC, 0, MPCmaxUnc)
 
         # Construct the unconstrained consumption function as a cubic interpolation
-        cFuncNowUnc = CubicInterp(
+        cFuncNowUnc = CubicInterp(  # anchor: cfunc-unconstrained-cubic
             m_for_interpolation,
             c_for_interpolation,
             MPC_for_interpolation,
@@ -736,7 +736,7 @@ def solve_one_period_ConsIndShock(
         )
     else:
         # Construct the unconstrained consumption function as a linear interpolation
-        cFuncNowUnc = LinearInterp(
+        cFuncNowUnc = LinearInterp(  # anchor: cfunc-unconstrained-linear
             m_for_interpolation,
             c_for_interpolation,
             cFuncLimitIntercept,
@@ -745,10 +745,10 @@ def solve_one_period_ConsIndShock(
 
     # Combine the constrained and unconstrained functions into the true consumption function.
     # LowerEnvelope should only be used when BoroCnstArt is True
-    cFuncNow = LowerEnvelope(cFuncNowUnc, cFuncNowCnst, nan_bool=False)
+    cFuncNow = LowerEnvelope(cFuncNowUnc, cFuncNowCnst, nan_bool=False)  # anchor: cfunc-lower-envelope
 
     # Make the marginal value function and the marginal marginal value function
-    vPfuncNow = MargValueFuncCRRA(cFuncNow, CRRA)
+    vPfuncNow = MargValueFuncCRRA(cFuncNow, CRRA)  # anchor: vpfunc-from-cfunc
 
     # Define this period's marginal marginal value function
     if CubicBool:
@@ -798,12 +798,12 @@ def solve_one_period_ConsIndShock(
             MPCminNvrs * hNrmNow,
             MPCminNvrs,
         )
-        vFuncNow = ValueFuncCRRA(vNvrsFuncNow, CRRA)
+        vFuncNow = ValueFuncCRRA(vNvrsFuncNow, CRRA)  # anchor: vfunc-build
     else:
         vFuncNow = NullFunc()  # Dummy object
 
     # Create and return this period's solution
-    solution_now = ConsumerSolution(
+    solution_now = ConsumerSolution(  # anchor: solution-return
         cFunc=cFuncNow,
         vFunc=vFuncNow,
         vPfunc=vPfuncNow,
@@ -816,7 +816,7 @@ def solve_one_period_ConsIndShock(
     return solution_now
 
 
-def solve_one_period_ConsKinkedR(
+def solve_one_period_ConsKinkedR(  # anchor: solve-one-period-kinkedr
     solution_next,
     IncShkDstn,
     LivPrb,
@@ -1082,7 +1082,7 @@ def solve_one_period_ConsKinkedR(
     return solution_now
 
 
-def make_basic_CRRA_solution_terminal(CRRA):
+def make_basic_CRRA_solution_terminal(CRRA):  # anchor: terminal-solution
     """
     Construct the terminal period solution for a consumption-saving model with
     CRRA utility and only one state variable.
@@ -1177,7 +1177,7 @@ PerfForesightConsumerType_defaults.update(PerfForesightConsumerType_simulation_d
 init_perfect_foresight = PerfForesightConsumerType_defaults
 
 
-class PerfForesightConsumerType(AgentType):
+class PerfForesightConsumerType(AgentType):  # anchor: pf-type-class
     r"""
     A perfect foresight consumer type who has no uncertainty other than mortality.
     Their problem is defined by a coefficient of relative risk aversion (:math:`\rho`), intertemporal
@@ -1280,7 +1280,7 @@ class PerfForesightConsumerType(AgentType):
 
     default_ = {
         "params": PerfForesightConsumerType_defaults,
-        "solver": solve_one_period_ConsPF,
+        "solver": solve_one_period_ConsPF,  # anchor: solver-wiring-pf
         "model": "ConsPerfForesight.yaml",
         "track_vars": ["aNrm", "cNrm", "mNrm", "pLvl"],
     }
@@ -1471,7 +1471,7 @@ class PerfForesightConsumerType(AgentType):
         for t in np.unique(self.t_cycle):
             idx = self.t_cycle == t
             if np.any(idx):
-                cNrmNow[idx], MPCnow[idx] = self.solution[t].cFunc.eval_with_derivative(
+                cNrmNow[idx], MPCnow[idx] = self.solution[t].cFunc.eval_with_derivative(  # anchor: sim-get-controls-cfunc
                     self.state_now["mNrm"][idx]
                 )
         self.controls["cNrm"] = cNrmNow
@@ -1978,7 +1978,7 @@ IndShockConsumerType_defaults.update(IndShockConsumerType_simulation_default)
 init_idiosyncratic_shocks = IndShockConsumerType_defaults  # Here so that other models which use the old convention don't break
 
 
-class IndShockConsumerType(PerfForesightConsumerType):
+class IndShockConsumerType(PerfForesightConsumerType):  # anchor: indshock-type-class
     r"""
     A consumer type with idiosyncratic shocks to permanent and transitory income.
     Their problem is defined by a sequence of income distributions, survival probabilities
@@ -2102,7 +2102,7 @@ class IndShockConsumerType(PerfForesightConsumerType):
     simulation_defaults = IndShockConsumerType_simulation_default
     default_ = {
         "params": IndShockConsumerType_defaults,
-        "solver": solve_one_period_ConsIndShock,
+        "solver": solve_one_period_ConsIndShock,  # anchor: solver-wiring-indshock
         "model": "ConsIndShock.yaml",
         "track_vars": ["aNrm", "cNrm", "mNrm", "pLvl"],
     }
@@ -2712,7 +2712,7 @@ KinkedRconsumerType_defaults.update(KinkedRconsumerType_simulation_default)
 init_kinked_R = KinkedRconsumerType_defaults
 
 
-class KinkedRconsumerType(IndShockConsumerType):
+class KinkedRconsumerType(IndShockConsumerType):  # anchor: kinkedr-type-class
     r"""
     A consumer type based on IndShockConsumerType, with different
     interest rates for saving (:math:`\mathsf{R}_{save}`) and borrowing
@@ -2837,7 +2837,7 @@ class KinkedRconsumerType(IndShockConsumerType):
     simulation_defaults = KinkedRconsumerType_simulation_default
     default_ = {
         "params": KinkedRconsumerType_defaults,
-        "solver": solve_one_period_ConsKinkedR,
+        "solver": solve_one_period_ConsKinkedR,  # anchor: solver-wiring-kinkedr
         "model": "ConsKinkedR.yaml",
         "track_vars": ["aNrm", "cNrm", "mNrm", "pLvl"],
     }
