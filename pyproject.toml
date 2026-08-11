@@ -24,7 +24,7 @@ classifiers = [
 ]
 description = "Heterogenous Agents Resources & toolKit"
 keywords = ["economics", "modelling", "modeling", "heterogeneity"]
-requires-python = ">=3.12"
+requires-python = ">=3.10"
 dynamic = ["dependencies", "optional-dependencies"]
 license = "Apache-2.0"
 license-files = ["LICENSE"]
