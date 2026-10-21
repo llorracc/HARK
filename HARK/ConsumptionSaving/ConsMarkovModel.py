@@ -157,20 +157,36 @@ def make_simple_binary_markov(T_cycle, Mrkv_p11, Mrkv_p22):
     return MrkvArray
 
 
-def make_employment_markov(T_cycle, UnempPrb):
+def make_employment_markov(T_cycle, UnempPrb, UnempSpellMean=None):
     """
     Make a list of Markov arrays between employment (state 0) and unemployment
-    (state 1) in which the probability of being unemployed next period is UnempPrb
-    from either state: unemployment drawn the same way whatever this period's
-    employment state is. With construct_employment_income_process, this states
-    IndShockConsumerType's income process with unemployment as a Markov state.
+    (state 1) whose stationary unemployment rate is UnempPrb.
+
+    Without UnempSpellMean, the probability of being unemployed next period is
+    UnempPrb from either state: unemployment drawn the same way whatever this
+    period's employment state is. With construct_employment_income_process, this
+    states IndShockConsumerType's income process with unemployment as a Markov
+    state.
+
+    With UnempSpellMean, unemployment is persistent, as in the Krusell-Smith
+    model's UrateB and SpellMeanB. An unemployed agent finds a job next period
+    with probability f = 1 / UnempSpellMean, so that spells last UnempSpellMean
+    periods on average, counting the first. An employed agent loses a job with
+    probability s = f * UnempPrb / (1 - UnempPrb), so that the stationary
+    unemployment rate s / (s + f) is UnempPrb. UnempSpellMean = 1 / (1 - UnempPrb)
+    gives the same arrays as no UnempSpellMean, up to rounding.
 
     Parameters
     ----------
     T_cycle : int
         Number of non-terminal periods in this instance's sequential problem.
     UnempPrb : float or [float]
-        Probability of unemployment, one value or one per non-terminal period.
+        Stationary unemployment rate, one value or one per non-terminal period.
+    UnempSpellMean : float or [float] or None, optional
+        Mean duration of an unemployment spell in periods, one value or one per
+        non-terminal period. It must be at least 1 and at least
+        UnempPrb / (1 - UnempPrb), so that both probabilities are at most 1.
+        The default, None, draws unemployment the same way from either state.
 
     Returns
     -------
@@ -180,7 +196,29 @@ def make_employment_markov(T_cycle, UnempPrb):
     UnempPrb_list = np.broadcast_to(np.asarray(UnempPrb, dtype=float), (T_cycle,))
     if np.any(UnempPrb_list < 0.0) or np.any(UnempPrb_list >= 1.0):
         raise ValueError("UnempPrb must be at least 0 and less than 1 in every period.")
-    MrkvArray = [np.array([[1.0 - p, p], [1.0 - p, p]]) for p in UnempPrb_list.tolist()]
+    if UnempSpellMean is None:
+        MrkvArray = [
+            np.array([[1.0 - p, p], [1.0 - p, p]]) for p in UnempPrb_list.tolist()
+        ]
+        return MrkvArray
+
+    SpellMean_list = np.broadcast_to(
+        np.asarray(UnempSpellMean, dtype=float), (T_cycle,)
+    )
+    SpellMean_min = np.maximum(1.0, UnempPrb_list / (1.0 - UnempPrb_list))
+    if np.any(np.isnan(SpellMean_list)) or np.any(SpellMean_list < SpellMean_min):
+        raise ValueError(
+            "UnempSpellMean must be at least 1 and at least UnempPrb / (1 - UnempPrb) "
+            "in every period, so that the job-finding and job-loss probabilities "
+            "are at most 1."
+        )
+    MrkvArray = []
+    for p, D in zip(UnempPrb_list.tolist(), SpellMean_list.tolist()):
+        JobFindPrb = 1.0 / D
+        JobLossPrb = JobFindPrb * p / (1.0 - p)
+        MrkvArray.append(
+            np.array([[1.0 - JobLossPrb, JobLossPrb], [JobFindPrb, 1.0 - JobFindPrb]])
+        )
     return MrkvArray
 
 
@@ -863,7 +901,8 @@ init_employment_markov = {
         0.1
     ],  # Standard deviation of log transitory income shocks when employed
     "TranShkCount": 7,  # Number of points in discrete approximation to transitory income shocks
-    "UnempPrb": 0.05,  # Probability of being unemployed next period, from either state
+    "UnempPrb": 0.05,  # Stationary unemployment rate
+    "UnempSpellMean": None,  # Mean unemployment spell in periods; None: same odds from either state
     "IncUnemp": 0.3,  # Transitory income when unemployed
     "AgentCount": 10000,  # Number of agents of this type
     "T_age": None,  # Age after which simulated agents are automatically killed

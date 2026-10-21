@@ -990,9 +990,12 @@ def construct_employment_income_process(
     With make_employment_markov's transition arrays, in which UnempPrb is the
     probability of unemployment next period from either state, the problem is
     the one that construct_lognormal_income_process_unemployment states with
-    unemployment folded into the transitory shock. For a persistent employment
-    process, supply MrkvArray directly and set UnempPrb to the unemployment rate
-    at which transitory income should have mean one. Retirement is not handled.
+    unemployment folded into the transitory shock. With UnempSpellMean, those
+    arrays make unemployment persistent while keeping UnempPrb as the stationary
+    unemployment rate, so transitory income still has mean one in the stationary
+    distribution. A MrkvArray supplied directly should likewise come with UnempPrb
+    set to the unemployment rate at which transitory income should have mean one.
+    Retirement is not handled.
 
     Parameters
     ----------

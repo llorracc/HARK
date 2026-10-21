@@ -483,6 +483,100 @@ class testNewbornTransShkByState(unittest.TestCase):
         np.testing.assert_array_equal(TranShk, 1.0)
 
 
+class testPersistentEmploymentMarkov(unittest.TestCase):
+    """
+    With UnempSpellMean, unemployment is persistent and UnempPrb stays the
+    stationary unemployment rate. Simulating with quota-exact transitions and
+    deaths, the share unemployed follows the transition rule that a transition
+    matrix over employment states would apply: survivors move by MrkvArray, and
+    newborns start employed.
+    """
+
+    UnempPrb = 0.05
+    UnempSpellMean = 4.0
+
+    def make_agent(self, LivPrb, **kwds):
+        params = deepcopy(init_employment_markov)
+        params.update(
+            cycles=0,
+            UnempSpellMean=self.UnempSpellMean,
+            LivPrb=[np.array([LivPrb, LivPrb])],
+            **kwds,
+        )
+        return MarkovConsumerType(**params)
+
+    def test_markov_arrays(self):
+        u, D = self.UnempPrb, self.UnempSpellMean
+        array = make_employment_markov(1, u, D)[0]
+        np.testing.assert_allclose(array[1], [1 / D, 1 - 1 / D], rtol=1e-15)
+        np.testing.assert_allclose(array.sum(axis=1), 1.0, rtol=1e-15)
+        # The stationary unemployment rate is UnempPrb
+        stationary = np.array([1 - u, u])
+        np.testing.assert_allclose(stationary @ array, stationary, rtol=1e-14)
+        # A mean spell of 1 / (1 - UnempPrb) is unemployment drawn the same way
+        # from either state
+        np.testing.assert_allclose(
+            make_employment_markov(2, u, 1 / (1 - u))[1],
+            make_employment_markov(2, u)[1],
+            rtol=0,
+            atol=1e-15,
+        )
+        # A spell shorter than one period, or so short that the job-loss
+        # probability would exceed 1, is refused
+        with self.assertRaises(ValueError):
+            make_employment_markov(1, u, 0.9)
+        with self.assertRaises(ValueError):
+            make_employment_markov(1, 0.6, 1.2)
+
+    def test_unemployed_consume_less(self):
+        agent = self.make_agent(0.98)
+        agent.solve()
+        m = np.linspace(0.0, 20.0, 2001)
+        gap = agent.solution[0].cFunc[0](m) - agent.solution[0].cFunc[1](m)
+        self.assertTrue(np.all(gap >= 0.0))
+        self.assertTrue(np.all(gap[m >= 0.5] > 0.05))
+
+    def simulate_unemployment(self, LivPrb):
+        agent = self.make_agent(
+            LivPrb,
+            AgentCount=10000,
+            T_sim=200,
+            markov_shuffle=True,
+            death_shuffle=True,
+        )
+        agent.solve()
+        agent.track_vars = ["Mrkv", "t_age"]
+        agent.initialize_sim()
+        agent.simulate()
+        simulated = np.mean(agent.history["Mrkv"] == 1, axis=1)
+
+        # The transition rule: survivors move by MrkvArray, newborns start employed
+        L = np.array([LivPrb, LivPrb])
+        newborn = np.array([1.0, 0.0])
+        dstn = newborn.copy()
+        rule = np.zeros(agent.T_sim)
+        for t in range(agent.T_sim):
+            rule[t] = dstn[1]
+            dstn = (dstn * L) @ agent.MrkvArray[0] + np.dot(dstn, 1 - L) * newborn
+        return agent, simulated, rule
+
+    def test_simulation_follows_transition_rule(self):
+        # Without deaths, the share unemployed is the rule's in every period, up
+        # to rounding the quotas to whole agents
+        agent, simulated, rule = self.simulate_unemployment(LivPrb=1.0)
+        np.testing.assert_allclose(simulated, rule, rtol=0, atol=5 / agent.AgentCount)
+        self.assertAlmostEqual(rule[-1], self.UnempPrb, places=12)
+
+    def test_newborns_lower_the_unemployment_rate(self):
+        # Deaths are replaced by employed newborns, so the share unemployed is
+        # below the stationary rate, by as much as the rule says
+        agent, simulated, rule = self.simulate_unemployment(LivPrb=0.98)
+        newborn = agent.history["t_age"] == 1  # recorded after the period's aging
+        self.assertTrue(np.all(agent.history["Mrkv"][newborn] == 0))
+        self.assertLess(rule[-1], self.UnempPrb - 0.003)
+        self.assertAlmostEqual(np.mean(simulated[20:]), np.mean(rule[20:]), delta=0.001)
+
+
 class testRatchet(unittest.TestCase):
     def test_ratchet_markov(self):
         some_probs = [np.array([0.1, 0.2, 0.3, 0.4]), np.array([0.4, 0.3, 0.2, 0.1])]
