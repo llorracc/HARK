@@ -689,3 +689,77 @@ class testMarkovKink(unittest.TestCase):
         agent.solve()
         for name in ("mNrmKink", "cNrmKink", "MPCaboveKink"):
             self.assertTrue(np.all(np.isnan(getattr(agent.solution[0], name))))
+
+
+class testMarkovBoroCnstInfimum(unittest.TestCase):
+    """
+    BoroCnstInfimum in the Markov solver: each succeeding state's natural limit
+    comes from its recorded infima. Unemployment as a Markov state with identical
+    rows must then match IndShockConsumerType with the same infima.
+    """
+
+    def test_matches_indshock(self):
+        R, LivPrb, G, p, xi, std = 1.03, 0.98, 1.01, 0.05, 0.3, 0.1
+        inf = np.exp(-(std**2) / 2 - 3 * std)
+        scale = (1 - p * xi) / (1 - p)
+        common = dict(
+            cycles=0,
+            BoroCnstArt=None,
+            BoroCnstInfimum=True,
+            vFuncBool=True,
+            tolerance=1e-12,
+        )
+        ind = IndShockConsumerType(
+            Rfree=[R],
+            LivPrb=[LivPrb],
+            PermGroFac=[G],
+            UnempPrb=p,
+            IncUnemp=xi,
+            **common,
+        )
+        psi, tran = ind.PermShkDstn[0], ind.TranShkDstn[0]
+
+        def labeled(dstn, tran_inf):
+            limit = {
+                "infimum": np.array([inf, tran_inf]),
+                "supremum": np.array([np.inf, np.inf]),
+            }
+            return DiscreteDistributionLabeled(
+                pmv=dstn.pmv,
+                atoms=dstn.atoms,
+                var_names=["PermShk", "TranShk"],
+                limit=limit,
+            )
+
+        ind.IncShkDstn = [labeled(ind.IncShkDstn[0], min(xi, scale * inf))]
+        theta = DiscreteDistribution(tran.pmv[1:] / (1 - p), tran.atoms[0][1:])
+        employed = labeled(combine_indep_dstns(psi, theta), scale * inf)
+        unemployed = labeled(
+            combine_indep_dstns(
+                psi, DiscreteDistribution(np.array([1.0]), np.array([xi]))
+            ),
+            xi,
+        )
+        mrkv = MarkovConsumerType(
+            Rfree=[np.array([R, R])],
+            LivPrb=[np.array([LivPrb, LivPrb])],
+            PermGroFac=[np.array([G, G])],
+            **common,
+        )
+        mrkv.IncShkDstn = [[employed, unemployed]]
+        mrkv.MrkvArray = [np.array([[1 - p, p], [1 - p, p]])]
+        ind.solve()
+        mrkv.solve()
+
+        kappa = G * inf / R
+        bound = -xi * kappa / (1 - kappa)
+        np.testing.assert_allclose(mrkv.solution[0].mNrmMin, [bound, bound], atol=1e-10)
+        np.testing.assert_allclose(mrkv.solution[0].MPCmax, [1.0, 1.0])
+        m = np.linspace(bound + 1e-9, 20.0, 1001)
+        for s in range(2):
+            np.testing.assert_allclose(
+                mrkv.solution[0].cFunc[s](m), ind.solution[0].cFunc(m), atol=1e-12
+            )
+            np.testing.assert_allclose(
+                mrkv.solution[0].vFunc[s](m), ind.solution[0].vFunc(m), rtol=1e-12
+            )
