@@ -620,7 +620,9 @@ class TruncatedLognormal(ContinuousFrozenDistribution):
         z_lo = np.maximum(
             self.z(np.maximum(np.asarray(lo, dtype=float), 0.0)), self.bot
         )
-        z_hi = np.minimum(self.z(np.asarray(hi, dtype=float)), self.top)
+        z_hi = np.minimum(
+            self.z(np.maximum(np.asarray(hi, dtype=float), 0.0)), self.top
+        )
         mass = np.maximum(_normal_mass(z_lo - ks, z_hi - ks), 0.0)
         return np.where(
             z_hi > z_lo, np.exp(k * self.mu + 0.5 * ks**2) * mass / self.mass, 0.0

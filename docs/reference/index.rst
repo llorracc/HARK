@@ -32,6 +32,7 @@ API Reference
    ConsumptionSaving/ConsHabitModel
    ConsumptionSaving/ConsHealthModel
    ConsumptionSaving/ConsIndShockModel
+   ConsumptionSaving/ConsIndShockContinuousModel
    ConsumptionSaving/ConsIndShockModelFast
    ConsumptionSaving/ConsLaborModel
    ConsumptionSaving/ConsMarkovModel
