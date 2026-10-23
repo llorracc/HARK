@@ -54,6 +54,7 @@ from HARK.ConsumptionSaving.ConsIndShockModel import (
     calc_mpc_max,
     calc_mpc_min,
     calc_patience_factor,
+    check_cubic_pairing,
 )
 from HARK.distributions import (
     DiscreteDistributionLabeled,
@@ -807,6 +808,8 @@ def solve_one_period_ConsIndShockContinuous(
     solution_now : ConsumerSolution
         Solution to this period's consumption-saving problem.
     """
+    # Cubic Hermite interpolation is the pairing the continuous expectation allows
+    check_cubic_pairing(CubicBool, continuous=True)
     if vFuncBool:
         raise NotImplementedError(
             "The continuous-expectation solver does not build the value function;"

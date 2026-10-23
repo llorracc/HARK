@@ -1,5 +1,6 @@
 import pickle
 import unittest
+from unittest import mock
 from copy import copy, deepcopy
 
 import numpy as np
@@ -155,7 +156,9 @@ class testBufferStock(unittest.TestCase):
         self.base_params["PermShkStd"] = [0.1]
         self.base_params["TranShkStd"] = [0.1]
         self.base_params["LivPrb"] = [1.0]
-        self.base_params["CubicBool"] = True
+        # Linear interpolation: cubic is refused with discrete shocks, so the
+        # values below were re-pinned from the linear solution
+        self.base_params["CubicBool"] = False
         self.base_params["T_cycle"] = 1
         self.base_params["BoroCnstArt"] = None
 
@@ -173,12 +176,12 @@ class testBufferStock(unittest.TestCase):
         c_t5 = baseEx.cFunc[-6](m)
         c_t10 = baseEx.cFunc[-11](m)
 
-        self.assertAlmostEqual(c_m[500], 1.40081, places=HARK_PRECISION)
+        self.assertAlmostEqual(c_m[500], 1.39978, places=HARK_PRECISION)
         self.assertAlmostEqual(c_t1[500], 2.92274, places=HARK_PRECISION)
-        self.assertAlmostEqual(c_t5[500], 1.73506, places=HARK_PRECISION)
-        self.assertAlmostEqual(c_t10[500], 1.49914, places=HARK_PRECISION)
-        self.assertAlmostEqual(c_t10[600], 1.61015, places=HARK_PRECISION)
-        self.assertAlmostEqual(c_t10[700], 1.71965, places=HARK_PRECISION)
+        self.assertAlmostEqual(c_t5[500], 1.73496, places=HARK_PRECISION)
+        self.assertAlmostEqual(c_t10[500], 1.49886, places=HARK_PRECISION)
+        self.assertAlmostEqual(c_t10[600], 1.60990, places=HARK_PRECISION)
+        self.assertAlmostEqual(c_t10[700], 1.71945, places=HARK_PRECISION)
 
     def test_GICRawFails(self):
         GICRaw_fail_dictionary = dict(self.base_params)
@@ -195,8 +198,8 @@ class testBufferStock(unittest.TestCase):
         m = np.linspace(0, 5, 1000)
         c_m = GICRawFailExample.cFunc[0](m)
 
-        self.assertAlmostEqual(c_m[500], 0.77726, places=HARK_PRECISION)
-        self.assertAlmostEqual(c_m[700], 0.83926, places=HARK_PRECISION)
+        self.assertAlmostEqual(c_m[500], 0.77732, places=HARK_PRECISION)
+        self.assertAlmostEqual(c_m[700], 0.83934, places=HARK_PRECISION)
 
         self.assertFalse(GICRawFailExample.conditions["GICRaw"])
 
@@ -211,22 +214,22 @@ class testBufferStock(unittest.TestCase):
         )  # m1 defines the plot range on the left of target m value (e.g. m <= target m)
         c_m1 = baseEx_inf.cFunc[0](m1)
 
-        self.assertAlmostEqual(c_m1[0], 0.85279, places=HARK_PRECISION)
-        self.assertAlmostEqual(c_m1[-1], 1.00363, places=HARK_PRECISION)
+        self.assertAlmostEqual(c_m1[0], 0.85182, places=HARK_PRECISION)
+        self.assertAlmostEqual(c_m1[-1], 1.00365, places=HARK_PRECISION)
 
         x1 = np.linspace(0, 25, 1000)
         cfunc_m = baseEx_inf.cFunc[0](x1)
 
-        self.assertAlmostEqual(cfunc_m[500], 1.89021, places=HARK_PRECISION)
-        self.assertAlmostEqual(cfunc_m[700], 2.15915, places=HARK_PRECISION)
+        self.assertAlmostEqual(cfunc_m[500], 1.88710, places=HARK_PRECISION)
+        self.assertAlmostEqual(cfunc_m[700], 2.15459, places=HARK_PRECISION)
 
         m = np.linspace(0.001, 8, 1000)
 
         # Use the HARK method derivative to get the derivative of cFunc, and the values are just the MPC
         MPC = baseEx_inf.cFunc[0].derivative(m)
 
-        self.assertAlmostEqual(MPC[500], 0.08415, places=HARK_PRECISION)
-        self.assertAlmostEqual(MPC[700], 0.07173, places=HARK_PRECISION)
+        self.assertAlmostEqual(MPC[500], 0.08409, places=HARK_PRECISION)
+        self.assertAlmostEqual(MPC[700], 0.07131, places=HARK_PRECISION)
 
 
 IdiosyncDict = {
@@ -480,7 +483,7 @@ bst_params["IncUnemp"] = 0.0  # Induces natural borrowing constraint
 bst_params["PermShkStd"] = [0.1]  # Standard deviation of log permanent income shocks
 bst_params["TranShkStd"] = [0.1]  # Standard deviation of log transitory income shocks
 bst_params["LivPrb"] = [1.0]  # 100 percent probability of living to next period
-bst_params["CubicBool"] = True  # Use cubic spline interpolation
+bst_params["CubicBool"] = False  # Cubic interpolation is refused with discrete shocks
 bst_params["T_cycle"] = 1  # No 'seasonal' cycles
 bst_params["BoroCnstArt"] = None  # No artificial borrowing constraint
 
@@ -501,8 +504,8 @@ class testStablePoints(unittest.TestCase):
         mNrmTrg = baseAgent_Inf.solution[0].mNrmTrg
 
         # Check against pre-computed values
-        self.assertAlmostEqual(mNrmStE, 1.37731, places=HARK_PRECISION)
-        self.assertAlmostEqual(mNrmTrg, 1.39102, places=HARK_PRECISION)
+        self.assertAlmostEqual(mNrmStE, 1.37921, places=HARK_PRECISION)
+        self.assertAlmostEqual(mNrmTrg, 1.39341, places=HARK_PRECISION)
 
 
 JACDict = {
@@ -1197,8 +1200,14 @@ class testCubicSolutionSerialization(unittest.TestCase):
     """
 
     def setUp(self):
+        # A cubic cFunc is what the test needs, and the pairing rule refuses it, so
+        # the agent is solved with the check disabled
         self.agent = IndShockConsumerType(CubicBool=True, vFuncBool=True)
-        self.agent.solve()
+        with mock.patch(
+            "HARK.ConsumptionSaving.ConsIndShockModel.check_cubic_pairing",
+            lambda *args, **kwargs: None,
+        ):
+            self.agent.solve()
         self.m = np.linspace(0.5, 20.0, 50)
 
     def check_solution(self, solution):

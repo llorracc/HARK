@@ -732,6 +732,42 @@ def calc_vpp_next(shock, a, rfree, crra, perm_gro_fac, vppfunc_next):
     )
 
 
+CUBIC_PAIRING_MESSAGE = (
+    "CubicBool=True pairs cubic Hermite interpolation of the consumption function "
+    "with an expectation over discrete income shock atoms. Each atom sends next "
+    "period's borrowing-constraint kink to a point of this period's asset grid, "
+    "where the consumption function then has a kink of its own; a cubic Hermite "
+    "segment is smooth and cannot follow a kink inside it, so the consumption "
+    "function violates concavity there. Use linear interpolation "
+    "(CubicBool=False), or integrate the income shocks continuously where HARK "
+    "offers it, under which the images of the kink vanish."
+)
+
+
+def check_cubic_pairing(CubicBool, continuous=False):
+    """
+    Refuse cubic Hermite interpolation of the consumption function unless the
+    expectation over the income shocks is taken continuously. A sum over discrete
+    atoms puts an image of next period's borrowing-constraint kink into this
+    period's consumption function for every atom, and a cubic Hermite segment
+    cannot carry a kink inside it, so the function violates concavity there.
+    Linear interpolation is concave by construction.
+
+    Parameters
+    ----------
+    CubicBool : bool
+        Whether cubic Hermite interpolation was requested.
+    continuous : bool, optional
+        Whether the expectation over the income shocks is continuous. Default False.
+
+    Returns
+    -------
+    None
+    """
+    if CubicBool and not continuous:
+        raise ValueError(CUBIC_PAIRING_MESSAGE)
+
+
 def solve_one_period_ConsIndShock(
     solution_next,
     IncShkDstn,
@@ -786,6 +822,7 @@ def solve_one_period_ConsIndShock(
         Solution to this period's consumption-saving problem with income risk.
 
     """
+    check_cubic_pairing(CubicBool)
     # Define the current period utility function and effective discount factor
     uFunc = UtilityFuncCRRA(CRRA)
     DiscFacEff = DiscFac * LivPrb  # "effective" discount factor
@@ -1010,6 +1047,7 @@ def solve_one_period_ConsKinkedR(
         Solution to this period's consumption-saving problem with income risk.
 
     """
+    check_cubic_pairing(CubicBool)
     # Verifiy that there is actually a kink in the interest factor
     assert Rboro >= Rsave, (
         "Interest factor on debt less than interest factor on savings!"
