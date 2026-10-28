@@ -45,6 +45,7 @@ from HARK.interpolation import (
     LowerEnvelope,
     MargMargValueFuncCRRA,
     MargValueFuncCRRA,
+    ShapePreservingCubicInterp,
     ValueFuncCRRA,
 )
 from HARK.interpolation import CubicHermiteInterp as CubicInterp
@@ -779,6 +780,8 @@ def solve_one_period_ConsIndShock(
         included in the reported solution.
     CubicBool: boolean
         An indicator for whether the solver should use cubic or linear interpolation.
+        The cubic consumption function is a ShapePreservingCubicInterp, which
+        keeps concave data concave.
 
     Returns
     -------
@@ -859,8 +862,9 @@ def solve_one_period_ConsIndShock(
         MPC = dcda / (dcda + 1.0)
         MPC_for_interpolation = np.insert(MPC, 0, MPCmaxUnc)
 
-        # Construct the unconstrained consumption function as a cubic interpolation
-        cFuncNowUnc = CubicInterp(
+        # Construct the unconstrained consumption function as a cubic interpolation,
+        # with tension where the cubic would violate the concavity of its data
+        cFuncNowUnc = ShapePreservingCubicInterp(
             m_for_interpolation,
             c_for_interpolation,
             MPC_for_interpolation,
@@ -2255,7 +2259,8 @@ class IndShockConsumerType(PerfForesightConsumerType):
     vFuncBool: bool
         Whether to calculate the value function during solution.
     CubicBool: bool
-        Whether to use cubic spline interpoliation.
+        Whether to use cubic spline interpolation. The consumption function is then
+        a ShapePreservingCubicInterp, which keeps concave data concave.
 
     Simulation Parameters
     ---------------------
