@@ -1,9 +1,11 @@
 import pickle
 import unittest
 from copy import copy, deepcopy
+from unittest import mock
 
 import numpy as np
 
+import HARK.ConsumptionSaving.ConsIndShockModel as ConsIndShockModel
 from HARK.ConsumptionSaving.ConsIndShockModel import (
     IndShockConsumerType,
     PerfForesightConsumerType,
@@ -12,6 +14,7 @@ from HARK.ConsumptionSaving.ConsIndShockModel import (
 )
 from HARK.ConsumptionSaving.ConsMarkovModel import MarkovConsumerType
 from HARK.distributions.base import MarkovProcess
+from HARK.interpolation import CubicHermiteInterp, ShapePreservingCubicInterp
 from HARK.utilities import plot_funcs, plot_funcs_der
 from tests import HARK_PRECISION
 
@@ -1216,6 +1219,51 @@ class testCubicSolutionSerialization(unittest.TestCase):
     def test_pickle_solution(self):
         restored = pickle.loads(pickle.dumps(self.agent.solution[0]))
         self.check_solution(restored)
+
+
+class testShapePreservingCubicConsumption(unittest.TestCase):
+    """
+    With CubicBool the consumption function is a ShapePreservingCubicInterp. At
+    the default grid no segment needs tension, so the solution is the plain
+    cubic's; on a fine grid the plain cubic's MPC rises with wealth on some
+    segments above the borrowing constraint's kink, and this one's does not.
+    """
+
+    def solve(self, plain, **kwargs):
+        agent = IndShockConsumerType(cycles=0, CubicBool=True, **kwargs)
+        if plain:
+            with mock.patch.object(
+                ConsIndShockModel, "ShapePreservingCubicInterp", CubicHermiteInterp
+            ):
+                agent.solve()
+        else:
+            agent.solve()
+        return agent.solution[0].cFunc
+
+    @staticmethod
+    def largest_rise(cFunc, m):
+        """How far the MPC climbs anywhere to the right: zero if cFunc is concave."""
+        mpc = cFunc.derivative(m)
+        return np.max(np.maximum.accumulate(mpc[::-1])[::-1] - mpc)
+
+    def test_default_grid_unchanged(self):
+        cFunc = self.solve(plain=False)
+        self.assertIsInstance(cFunc.functions[0], ShapePreservingCubicInterp)
+        np.testing.assert_array_equal(cFunc.functions[0].tension, 0.0)
+        plain = self.solve(plain=True)
+        m = np.linspace(0.0, 50.0, 10001)
+        np.testing.assert_array_equal(cFunc(m), plain(m))
+        np.testing.assert_array_equal(cFunc.derivative(m), plain.derivative(m))
+
+    def test_concave_on_fine_grids(self):
+        m = np.linspace(0.8, 3.0, 400001)  # above the kink, near m = 0.755
+        for aXtraCount in (200, 500, 1000):
+            with self.subTest(aXtraCount=aXtraCount):
+                plain = self.solve(plain=True, aXtraCount=aXtraCount)
+                self.assertGreater(self.largest_rise(plain, m), 1e-4)
+                cFunc = self.solve(plain=False, aXtraCount=aXtraCount)
+                self.assertTrue(np.any(cFunc.functions[0].tension > 0.0))
+                self.assertLessEqual(self.largest_rise(cFunc, m), 1e-12)
 
 
 class testIncomeShuffleIndShock(unittest.TestCase):
