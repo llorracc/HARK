@@ -1508,6 +1508,226 @@ class CubicHermiteInterp(_CubicInterpMixin, HARKinterpolator1D):
         return self._chs.solve(y, discontinuity, extrapolate)
 
 
+class ShapePreservingCubicInterp(CubicHermiteInterp):
+    """
+    A cubic Hermite interpolant that keeps concave data concave. Like
+    CubicHermiteInterp, it matches the level and slope of a 1D function at each
+    gridpoint, and it is identical to CubicHermiteInterp on every segment where
+    the cubic is concave. On a segment whose data are concave but whose cubic is
+    not, it uses Delbourgo and Gregory's (1985) rational cubic Hermite, with the
+    least tension that makes the segment concave.
+
+    On the segment [x_i, x_{i+1}], let h = x_{i+1} - x_i, t = (x - x_i) / h, D be
+    the slope of the chord, s_i and s_{i+1} the slopes at the two gridpoints,
+    a = s_i - D and b = D - s_{i+1}. The data are concave on the segment when
+    a >= 0 and b >= 0. The rational cubic is
+
+        f(x) = (1 - t) y_i + t y_{i+1} + h t (1 - t) [a (1 - t) + b t] / Q(t),
+        Q(t) = 1 + (r - 3) t (1 - t),
+
+    which is the cubic Hermite when r = 3. For a > 0 and b > 0 it is concave on
+    the segment if and only if r >= 1 + max(a/b, b/a). This class takes
+    r = max(3, 1 + max(a/b, b/a)), so a segment keeps the cubic exactly when
+    max(a/b, b/a) <= 2, which is when the cubic is concave. Where the slopes at
+    the gridpoints are positive, a concave segment is also increasing.
+
+    Segments whose data are not concave (a < 0 or b < 0) keep the cubic, as do
+    segments whose data are linear (a = b = 0). Where one of a and b is zero
+    and the other is not, the only concave interpolant is the chord, which
+    cannot take the other gridpoint's slope; the tension is then capped at
+    max_tension, giving the chord except in a thin layer at that gridpoint.
+    Values of a and b within a relative tolerance of zero count as zero.
+
+    Extrapolation below and above the grid is CubicHermiteInterp's.
+
+    Reference: R. Delbourgo and J. A. Gregory (1985), "Shape preserving piecewise
+    rational interpolation", SIAM Journal on Scientific and Statistical
+    Computing 6(4), 967-976.
+
+    Parameters
+    ----------
+    x_list : np.array
+        List of x values composing the grid.
+    y_list : np.array
+        List of y values, representing f(x) at the points in x_list.
+    dydx_list : np.array
+        List of dydx values, representing f'(x) at the points in x_list
+    intercept_limit : float
+        Intercept of limiting linear function.
+    slope_limit : float
+        Slope of limiting linear function.
+    lower_extrap : boolean
+        Indicator for whether lower extrapolation is allowed.  False means
+        f(x) = NaN for x < min(x_list); True means linear extrapolation.
+    """
+
+    max_tension = 1e12  # cap on r - 3, where concavity needs the chord
+    zero_tol = 1e-12  # relative tolerance below which a or b counts as zero
+
+    def __init__(
+        self,
+        x_list,
+        y_list,
+        dydx_list,
+        intercept_limit=None,
+        slope_limit=None,
+        lower_extrap=False,
+    ):
+        super().__init__(
+            x_list, y_list, dydx_list, intercept_limit, slope_limit, lower_extrap
+        )
+        self._set_tension()
+
+    def _set_tension(self):
+        """
+        Find each segment's tension, r - 3, by the rule in the class docstring.
+        It is positive only on segments whose data are concave and whose cubic
+        is not; the attribute ``tension`` holds it, one entry per segment.
+        """
+        x, y, s = self.x_list, self.y_list, self.dydx_list
+        h = np.diff(x)
+        with np.errstate(divide="ignore", invalid="ignore"):
+            chord = np.diff(y) / h
+        ok = np.isfinite(chord) & (h > 0.0)
+        h_safe = np.where(ok, h, 1.0)
+        chord = np.where(ok, chord, s[:-1])
+        a = np.where(ok, s[:-1] - chord, 0.0)
+        b = np.where(ok, chord - s[1:], 0.0)
+
+        # Zero for a and b: relative to the slopes, plus the rounding in the chord
+        scale = np.maximum(np.maximum(np.abs(s[:-1]), np.abs(s[1:])), np.abs(chord))
+        rounding = np.maximum(np.abs(y[:-1]), np.abs(y[1:])) / h_safe
+        tol = self.zero_tol * scale + 4.0 * np.finfo(float).eps * rounding
+        concave = ok & (a >= -tol) & (b >= -tol)
+        linear = concave & (a <= tol) & (b <= tol)
+        a_pos = np.maximum(a, tol)
+        b_pos = np.maximum(b, tol)
+        with np.errstate(divide="ignore", invalid="ignore", over="ignore"):
+            rho = np.maximum(a_pos / b_pos, b_pos / a_pos)
+        rho = np.where(np.isfinite(rho), rho, self.max_tension)
+        tension = np.minimum(np.maximum(rho - 2.0, 0.0), self.max_tension)
+
+        self.tension = np.where(concave & ~linear, tension, 0.0)
+        self._chord = chord
+        self._a = a
+        self._b = b
+
+    def _tense_points(self, x):
+        """
+        Returns a boolean array marking the points of x that lie on a segment
+        with tension, and the index of that segment for each of them.
+        """
+        if not np.any(self.tension > 0.0):
+            return np.zeros(x.shape, dtype=bool), np.zeros(0, dtype=int)
+        inside = (x >= self.x_list[0]) & (x <= self.x_list[-1])
+        i = np.clip(np.searchsorted(self.x_list, x, side="right") - 1, 0, self.n - 2)
+        tense = inside & (self.tension[i] > 0.0)
+        return tense, i[tense]
+
+    def _rational(self, x, i):
+        """
+        Level and slope of the rational cubic at points x on segments i.
+        """
+        h = self.x_list[i + 1] - self.x_list[i]
+        t = np.clip((x - self.x_list[i]) / h, 0.0, 1.0)
+        a = self._a[i]
+        b = self._b[i]
+        u = t * (1.0 - t)
+        w = a * (1.0 - t) + b * t
+        Q = 1.0 + self.tension[i] * u
+        y = (1.0 - t) * self.y_list[i] + t * self.y_list[i + 1] + h * u * w / Q
+        dydx = self._chord[i] + (1.0 - 2.0 * t) * w / Q**2 + u * (b - a) / Q
+        return y, dydx
+
+    def _evaluate(self, x):
+        """
+        Returns the level of the interpolated function at each value in x.  Only
+        called internally by HARKinterpolator1D.__call__ (etc).
+        """
+        y = super()._evaluate(x)
+        tense, i = self._tense_points(x)
+        if np.any(tense):
+            y[tense] = self._rational(x[tense], i)[0]
+        return y
+
+    def _der(self, x):
+        """
+        Returns the first derivative of the interpolated function at each value
+        in x. Only called internally by HARKinterpolator1D.derivative (etc).
+        """
+        dydx = super()._der(x)
+        tense, i = self._tense_points(x)
+        if np.any(tense):
+            dydx[tense] = self._rational(x[tense], i)[1]
+        return dydx
+
+    def _evalAndDer(self, x):
+        """
+        Returns the level and first derivative of the function at each value in
+        x.  Only called internally by HARKinterpolator1D.eval_and_der (etc).
+        """
+        y, dydx = super()._evalAndDer(x)
+        tense, i = self._tense_points(x)
+        if np.any(tense):
+            y[tense], dydx[tense] = self._rational(x[tense], i)
+        return y, dydx
+
+    def set_linear_segment(self, i):
+        """
+        Replace the segment ``[x_list[i], x_list[i+1]]`` by its chord, as
+        CubicHermiteInterp.set_linear_segment does, and remove its tension.
+
+        Parameters
+        ----------
+        i : int
+            Index of the segment, 0 <= i < n - 1.
+        """
+        super().set_linear_segment(i)
+        self.tension[int(i)] = 0.0
+
+    def _require_polynomial(self, name):
+        if np.any(self.tension > 0.0):
+            raise NotImplementedError(
+                f"{name} is not available for a ShapePreservingCubicInterp with "
+                "tension on any segment, whose pieces there are not polynomials."
+            )
+
+    def der_interp(self, nu=1):
+        """
+        As CubicHermiteInterp.der_interp, when no segment has tension.
+        """
+        self._require_polynomial("der_interp")
+        return super().der_interp(nu)
+
+    def antider_interp(self, nu=1):
+        """
+        As CubicHermiteInterp.antider_interp, when no segment has tension.
+        """
+        self._require_polynomial("antider_interp")
+        return super().antider_interp(nu)
+
+    def integrate(self, a, b, extrapolate=False):
+        """
+        As CubicHermiteInterp.integrate, when no segment has tension.
+        """
+        self._require_polynomial("integrate")
+        return super().integrate(a, b, extrapolate)
+
+    def roots(self, discontinuity=True, extrapolate=False):
+        """
+        As CubicHermiteInterp.roots, when no segment has tension.
+        """
+        self._require_polynomial("roots")
+        return super().roots(discontinuity, extrapolate)
+
+    def solve(self, y=0.0, discontinuity=True, extrapolate=False):
+        """
+        As CubicHermiteInterp.solve, when no segment has tension.
+        """
+        self._require_polynomial("solve")
+        return super().solve(y, discontinuity, extrapolate)
+
+
 class BilinearInterp(HARKinterpolator2D):
     """
     Bilinear full (or tensor) grid interpolation of a function f(x,y).

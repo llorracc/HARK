@@ -8,6 +8,7 @@ from HARK.interpolation import (
     LinearInterp,
     CubicInterp,
     CubicHermiteInterp,
+    ShapePreservingCubicInterp,
     LowerEnvelope,
     UpperEnvelope,
     BilinearInterp,
@@ -302,6 +303,165 @@ class TestCubicHermiteLinearSegment(unittest.TestCase):
         self.assertAlmostEqual(g.derivative(2.0 + 1e-9), 4.0, places=6)
         with self.assertRaises(IndexError):
             g.set_linear_segment(3)
+
+
+class TestShapePreservingCubicInterpLog(TestCubicInterp):
+    interpolator_ = ShapePreservingCubicInterp
+
+
+def concave_data(lam, seed=0):
+    """
+    Gridpoints, levels and slopes of an increasing concave function: the slopes
+    fall, and each chord's slope is lam * (left slope) + (1 - lam) * (right
+    slope). The cubic Hermite through such data is concave on a segment exactly
+    when its lam is between 1/3 and 2/3.
+    """
+    rng = np.random.default_rng(seed)
+    n = lam.size + 1
+    x = np.cumsum(np.concatenate(([0.0], rng.uniform(0.05, 2.0, n - 1))))
+    slopes = np.sort(rng.uniform(0.05, 1.0, n))[::-1]
+    chords = lam * slopes[:-1] + (1.0 - lam) * slopes[1:]
+    y = np.concatenate(([0.0], np.cumsum(np.diff(x) * chords)))
+    return x, y, slopes
+
+
+def largest_rise(dydx):
+    """How far the slope climbs above its running minimum: zero if it never rises."""
+    return np.max(dydx - np.minimum.accumulate(dydx))
+
+
+class TestShapePreservingCubicInterp(unittest.TestCase):
+    def setUp(self):
+        lam = np.random.default_rng(1).uniform(0.05, 0.95, 30)
+        self.x, self.y, self.slopes = concave_data(lam)
+        self.lam = lam
+        self.x_fine = np.linspace(self.x[0], self.x[-1], 200001)
+
+    def test_knots(self):
+        f = ShapePreservingCubicInterp(self.x, self.y, self.slopes)
+        np.testing.assert_allclose(f(self.x), self.y, rtol=0, atol=1e-12)
+        np.testing.assert_allclose(
+            f.derivative(self.x), self.slopes, rtol=0, atol=1e-10
+        )
+
+    def test_concave_where_the_cubic_is_not(self):
+        f = ShapePreservingCubicInterp(self.x, self.y, self.slopes)
+        g = CubicHermiteInterp(self.x, self.y, self.slopes)
+        self.assertGreater(largest_rise(g.derivative(self.x_fine)), 1e-3)
+        y, dydx = f.eval_with_derivative(self.x_fine)
+        self.assertLessEqual(largest_rise(dydx), 1e-12)
+        self.assertTrue(np.all(dydx > 0.0))
+        # the segments with tension are the ones whose cubic is not concave
+        cubic_concave = (self.lam >= 1.0 / 3.0) & (self.lam <= 2.0 / 3.0)
+        np.testing.assert_array_equal(f.tension > 0.0, ~cubic_concave)
+
+    def test_cubic_kept_where_it_is_concave(self):
+        f = ShapePreservingCubicInterp(self.x, self.y, self.slopes)
+        g = CubicHermiteInterp(self.x, self.y, self.slopes)
+        i = np.clip(np.searchsorted(self.x, self.x_fine, side="right") - 1, 0, 29)
+        kept = f.tension[i] == 0.0
+        self.assertTrue(np.any(kept))
+        y, dydx = f.eval_with_derivative(self.x_fine)
+        np.testing.assert_array_equal(y[kept], g(self.x_fine)[kept])
+        np.testing.assert_array_equal(dydx[kept], g.derivative(self.x_fine)[kept])
+
+        # where the cubic is concave on every segment, nothing changes anywhere
+        x, y, slopes = concave_data(np.linspace(0.35, 0.65, 30))
+        f = ShapePreservingCubicInterp(x, y, slopes)
+        g = CubicHermiteInterp(x, y, slopes)
+        np.testing.assert_array_equal(f.tension, 0.0)
+        z = np.linspace(x[0] - 1.0, x[-1] + 1.0, 10001)
+        np.testing.assert_array_equal(f(z), g(z))
+        np.testing.assert_array_equal(f.derivative(z), g.derivative(z))
+
+    def test_entry_points_agree(self):
+        f = ShapePreservingCubicInterp(self.x, self.y, self.slopes)
+        y, dydx = f.eval_with_derivative(self.x_fine)
+        np.testing.assert_array_equal(y, f(self.x_fine))
+        np.testing.assert_array_equal(dydx, f.derivative(self.x_fine))
+        # the slope is the derivative of the level, away from the gridpoints
+        e = 1e-6
+        z = self.x_fine[::20]
+        away = np.min(np.abs(z[:, None] - self.x[None, :]), axis=1) > 10 * e
+        z = z[away]
+        central = (f(z + e) - f(z - e)) / (2 * e)
+        np.testing.assert_allclose(central, f.derivative(z), rtol=0, atol=1e-7)
+
+    def test_continuously_differentiable_at_the_gridpoints(self):
+        f = ShapePreservingCubicInterp(self.x, self.y, self.slopes)
+        e = 1e-9
+        knots = self.x[1:-1]
+        for side in (-1.0, 1.0):
+            z = knots + side * e
+            np.testing.assert_allclose(f(z), self.y[1:-1], rtol=0, atol=1e-8)
+            np.testing.assert_allclose(
+                f.derivative(z), self.slopes[1:-1], rtol=0, atol=1e-5
+            )
+
+    def test_extrapolation_is_the_cubics(self):
+        z = np.concatenate(
+            (np.linspace(-2.0, -1e-9, 50), np.linspace(1e-9, 5.0, 50) + self.x[-1])
+        )
+        for kwargs in ({}, {"intercept_limit": 1.0, "slope_limit": 0.02}):
+            for lower_extrap in (False, True):
+                f = ShapePreservingCubicInterp(
+                    self.x, self.y, self.slopes, lower_extrap=lower_extrap, **kwargs
+                )
+                g = CubicHermiteInterp(
+                    self.x, self.y, self.slopes, lower_extrap=lower_extrap, **kwargs
+                )
+                np.testing.assert_array_equal(f(z), g(z))
+                np.testing.assert_array_equal(f.derivative(z), g.derivative(z))
+
+    def test_degenerate_segments(self):
+        cases = [
+            ([0.0, 1.0, 2.0], [0.0, 1.0, 1.5], [1.0, 0.6, 0.4]),  # a = 0
+            ([0.0, 1.0, 2.0], [0.0, 1.0, 1.5], [1.2, 1.0, 0.4]),  # b = 0
+            ([0.0, 1.0, 2.0], [0.0, 1.0, 2.0], [1.0, 1.0, 1.0]),  # linear
+            ([0.0, 1.0, 2.0], [0.0, 1.0, 1.5], [0.5, 0.9, 0.4]),  # not concave
+            ([0.0, 1e-13, 1.0], [0.0, 1e-13, 0.7], [1.0, 1.0, 0.5]),  # tiny step
+            ([0.0, 0.9, 2.0], [0.0, 0.899, 1.4], [0.99997, 0.5, 0.4]),  # a << b
+        ]
+        for x, y, slopes in cases:
+            x, y, slopes = np.array(x), np.array(y), np.array(slopes)
+            f = ShapePreservingCubicInterp(x, y, slopes)
+            z = np.linspace(x[0], x[-1], 10001)
+            level, dydx = f.eval_with_derivative(z)
+            self.assertTrue(np.all(np.isfinite(level)) and np.all(np.isfinite(dydx)))
+            np.testing.assert_allclose(f(x), y, rtol=0, atol=1e-12)
+            np.testing.assert_allclose(f.derivative(x), slopes, rtol=0, atol=1e-9)
+
+    def test_set_linear_segment(self):
+        f = ShapePreservingCubicInterp(self.x, self.y, self.slopes)
+        i = int(np.flatnonzero(f.tension > 0.0)[0])
+        f.set_linear_segment(i)
+        self.assertEqual(f.tension[i], 0.0)
+        t = np.linspace(self.x[i], self.x[i + 1], 11)
+        chord = self.y[i] + (t - self.x[i]) * (self.y[i + 1] - self.y[i]) / (
+            self.x[i + 1] - self.x[i]
+        )
+        np.testing.assert_allclose(f(t), chord, rtol=0, atol=1e-14)
+
+    def test_serialization(self):
+        f = ShapePreservingCubicInterp(self.x, self.y, self.slopes)
+        f.set_linear_segment(int(np.flatnonzero(f.tension > 0.0)[0]))
+        for g in (pickle.loads(pickle.dumps(f)), deepcopy(f)):
+            np.testing.assert_array_equal(g(self.x_fine), f(self.x_fine))
+            np.testing.assert_array_equal(
+                g.derivative(self.x_fine), f.derivative(self.x_fine)
+            )
+            np.testing.assert_array_equal(g.tension, f.tension)
+
+    def test_polynomial_methods_need_no_tension(self):
+        f = ShapePreservingCubicInterp(self.x, self.y, self.slopes)
+        with self.assertRaises(NotImplementedError):
+            f.integrate(self.x[0], self.x[-1])
+        with self.assertRaises(NotImplementedError):
+            f.der_interp()
+        x, y, slopes = concave_data(np.linspace(0.35, 0.65, 30))
+        f = ShapePreservingCubicInterp(x, y, slopes)
+        g = CubicHermiteInterp(x, y, slopes)
+        self.assertEqual(f.integrate(x[0], x[-1]), g.integrate(x[0], x[-1]))
 
 
 class TestLowerEnvelope(TestInterp1D):
