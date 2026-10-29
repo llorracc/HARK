@@ -791,6 +791,329 @@ class LogNormalTruncatedMeanOne(LogNormalTruncated):
         return cls(sigma=sigma, bot=bot, top=top, seed=seed)
 
 
+def _weighted_quantile(y, w, q):
+    """Quantile q of the points y with probabilities w, interpolated linearly."""
+    order = np.argsort(y)
+    y, w = y[order], w[order]
+    cum = np.cumsum(w) - 0.5 * w
+    return np.interp(q, cum / cum[-1], y)
+
+
+class LogNormalMixture(Distribution):
+    """
+    A mixture of lognormal distributions, optionally truncated: with probability
+    proportional to weights[k], X is exp(mu[k] + sigma[k] Z) for a standard
+    normal Z, and with bounds the mixture as a whole is restricted to
+    [lower, upper] and rescaled to unit mass.
+
+    expected_continuous() integrates it component by component, through the
+    attributes ``weights`` and ``components``: the components are the
+    lognormals truncated to [lower, upper], each a LogNormalTruncated, and the
+    weights are those of the truncated mixture. LogNormalMixture.from_points()
+    builds one from a set of points by kernel smoothing in their logs, so that a
+    distribution given by points, such as data, can enter a model as a
+    continuous law, without mass points.
+
+    It discretizes two ways: discretize(N), the default, splits the whole
+    mixture into N atoms of equal probability, and
+    discretize(N, method="components") splits each component into N, each
+    carrying its component's weight over N.
+
+    Parameters
+    ----------
+    mu : float or np.array
+        Means of the components' underlying normals.
+    sigma : float or np.array
+        Standard deviations of the components' underlying normals, positive.
+    weights : np.array, optional
+        Probabilities of the components before any truncation, normalized to
+        sum to one; equal by default.
+    lower : float or None, optional
+        Lower end of the support, a value of X; None, the default, is zero.
+    upper : float or None, optional
+        Upper end of the support, a value of X; None, the default, is no bound.
+    seed : int, optional
+        Seed for random number generator, by default None.
+    """
+
+    def __init__(self, mu, sigma, weights=None, lower=None, upper=None, seed=None):
+        mu, sigma = np.broadcast_arrays(
+            np.atleast_1d(np.asarray(mu, dtype=float)),
+            np.atleast_1d(np.asarray(sigma, dtype=float)),
+        )
+        if mu.ndim != 1:
+            raise ValueError("mu and sigma must be scalars or 1D arrays.")
+        if not np.all(sigma > 0.0):
+            raise ValueError("Every component's sigma must be positive.")
+        if weights is None:
+            weights = np.ones(mu.size)
+        weights = np.asarray(weights, dtype=float)
+        if weights.shape != mu.shape or np.any(weights < 0.0) or weights.sum() <= 0:
+            raise ValueError(
+                "weights must be nonnegative, one per component, and not all zero."
+            )
+        self.lower = 0.0 if lower is None else float(lower)
+        self.upper = np.inf if upper is None else float(upper)
+        if not 0.0 <= self.lower < self.upper:
+            raise ValueError("The support must satisfy 0 <= lower < upper.")
+        super().__init__(seed=seed)
+        self.mu = mu.copy()
+        self.sigma = sigma.copy()
+
+        # Each component's bounds in its own standard-normal coordinate
+        with np.errstate(divide="ignore"):
+            self._bot = (np.log(self.lower) - self.mu) / self.sigma
+            self._top = (np.log(self.upper) - self.mu) / self.sigma
+        self._mass = _normal_mass(self._bot, self._top)
+        with np.errstate(divide="ignore"):
+            self._inv_mass = np.where(self._mass > 0.0, 1.0 / self._mass, 0.0)
+        kept = weights * self._mass
+        if not kept.sum() > 0.0:
+            raise ValueError("No component has mass inside [lower, upper].")
+        self.mass = float(kept.sum() / weights.sum())  # the share the truncation keeps
+        self.weights = kept / kept.sum()
+        self.components = [
+            LogNormalTruncated(
+                m,
+                s,
+                bot=None if np.isneginf(b) else b,
+                top=None if np.isposinf(t) else t,
+            )
+            if p > 0.0
+            else DiscreteDistribution([1.0], [np.exp(m)])
+            for m, s, b, t, p in zip(self.mu, self.sigma, self._bot, self._top, kept)
+        ]
+        self.infimum = np.array([self.lower])
+        self.supremum = np.array([self.upper])
+
+    @classmethod
+    def from_points(
+        cls,
+        points,
+        weights=None,
+        bandwidth=None,
+        match_variance=True,
+        seed=None,
+    ):
+        """
+        A lognormal mixture from points by kernel smoothing in their logs: each
+        point becomes a lognormal component whose underlying normal has the
+        bandwidth as its standard deviation, and the mixture is truncated once,
+        at three bandwidths beyond the outermost points.
+
+        With match_variance (the default), the logs are first moved toward their
+        mean by sqrt(1 - bandwidth**2 / variance), so that the smoothing gives
+        back the variance of the points' logs (before the truncation, which
+        trims a little); without it, the variance of the logs grows by the
+        bandwidth squared, as in plain kernel smoothing. The mixture is then
+        rescaled to the points' mean.
+
+        Parameters
+        ----------
+        points : np.array
+            Positive points, such as observed income shocks.
+        weights : np.array, optional
+            Probabilities of the points; equal by default.
+        bandwidth : float, optional
+            Standard deviation of each component's underlying normal. By default,
+            Silverman's rule of thumb on the logs: 0.9 min(s, IQR / 1.34)
+            n**(-1/5), with s and IQR the logs' standard deviation and
+            interquartile range and n the points' effective number,
+            1 / sum(weights**2).
+        match_variance : bool, optional
+            Whether the smoothing keeps the variance of the points' logs, by
+            default True.
+        seed : int, optional
+            Seed for random number generator, by default None.
+
+        Returns
+        -------
+        LogNormalMixture
+        """
+        x = np.asarray(points, dtype=float).ravel()
+        if not np.all(x > 0.0):
+            raise ValueError("The points must be positive.")
+        w = np.ones(x.size) if weights is None else np.asarray(weights, dtype=float)
+        if w.shape != x.shape or np.any(w < 0.0) or w.sum() <= 0:
+            raise ValueError("weights must be nonnegative, one per point.")
+        w = w / w.sum()
+        y = np.log(x)
+        m = np.dot(w, y)
+        var = np.dot(w, (y - m) ** 2)
+        if not var > 0.0:
+            raise ValueError("The points must take at least two values.")
+        if bandwidth is None:
+            iqr = _weighted_quantile(y, w, 0.75) - _weighted_quantile(y, w, 0.25)
+            spread = min(np.sqrt(var), iqr / 1.34) if iqr > 0.0 else np.sqrt(var)
+            bandwidth = 0.9 * spread * np.sum(w**2) ** 0.2
+        h = float(bandwidth)
+        if not h > 0.0:
+            raise ValueError("bandwidth must be positive.")
+        if match_variance:
+            if h * h >= var:
+                raise ValueError(
+                    "To keep the variance of the logs, the bandwidth must be "
+                    "smaller than their standard deviation."
+                )
+            y = m + np.sqrt(1.0 - h * h / var) * (y - m)
+        mu = y - 0.5 * h * h
+        lower, upper = np.exp(y.min() - 3.0 * h), np.exp(y.max() + 3.0 * h)
+        unscaled = cls(mu, h, w, lower=lower, upper=upper)
+        scale = np.dot(w, x) / unscaled.mean()
+        return cls(
+            mu + np.log(scale),
+            h,
+            w,
+            lower=lower * scale,
+            upper=upper * scale,
+            seed=seed,
+        )
+
+    def _z(self, x):
+        """Each component's standard-normal coordinate of x, in the last axis."""
+        x = np.asarray(x, dtype=float)
+        with np.errstate(divide="ignore", invalid="ignore"):
+            return (np.log(np.maximum(x, 0.0))[..., None] - self.mu) / self.sigma
+
+    def pdf(self, x):
+        """The density at x."""
+        x = np.asarray(x, dtype=float)
+        z = self._z(x)
+        inside = (x >= self.lower) & (x <= self.upper) & (x > 0.0)
+        dens = (
+            np.exp(-0.5 * z * z) * self._inv_mass / (np.sqrt(2.0 * np.pi) * self.sigma)
+        )
+        with np.errstate(divide="ignore", invalid="ignore"):
+            out = np.dot(np.nan_to_num(dens), self.weights) / x
+        return np.where(inside, out, 0.0)
+
+    def cdf(self, x):
+        """The cumulative distribution function at x."""
+        z = np.clip(self._z(x), self._bot, self._top)
+        return np.dot(_normal_mass(self._bot, z) * self._inv_mass, self.weights)
+
+    def ppf(self, q):
+        """
+        The quantile function at q, by bisection in the log between the
+        components' own quantiles, which bracket the mixture's.
+        """
+        q = np.asarray(q, dtype=float)
+        qc = np.clip(q, 0.0, 1.0)[..., None]
+        z = _truncated_normal_ppf(qc, self._bot, self._top)
+        with np.errstate(invalid="ignore"):
+            logs = np.where(self.weights > 0.0, self.mu + self.sigma * z, np.nan)
+        inner = (q > 0.0) & (q < 1.0)
+        lo = np.where(inner, np.nanmin(logs, axis=-1), 0.0)
+        hi = np.where(inner, np.nanmax(logs, axis=-1), 0.0)
+        for _ in range(200):
+            mid = 0.5 * (lo + hi)
+            below = self.cdf(np.exp(mid)) < q
+            lo, hi = np.where(below, mid, lo), np.where(below, hi, mid)
+            if np.all(
+                hi - lo <= 4.0 * np.finfo(float).eps * np.maximum(np.abs(hi), 1.0)
+            ):
+                break
+        out = np.exp(0.5 * (lo + hi))
+        out = np.where(q <= 0.0, self.lower, np.where(q >= 1.0, self.upper, out))
+        return out[()] if out.ndim == 0 else out
+
+    def partial_moment(self, order, lo, hi):
+        """E[X**order 1{lo < X < hi}], in closed form."""
+        n = float(order)
+        zl = np.clip(self._z(lo), self._bot, self._top) - n * self.sigma
+        zh = np.clip(self._z(hi), self._bot, self._top) - n * self.sigma
+        scale = (self.weights * self._inv_mass) * np.exp(
+            n * self.mu + 0.5 * (n * self.sigma) ** 2
+        )
+        return np.dot(_normal_mass(zl, zh), scale)
+
+    def moment(self, order):
+        """E[X**order], in closed form."""
+        return float(self.partial_moment(order, self.lower, self.upper))
+
+    def mean(self):
+        """E[X]."""
+        return self.moment(1)
+
+    def draw(self, N):
+        """
+        N draws: a component for each by the weights, then that truncated
+        lognormal by its quantile function.
+
+        Parameters
+        ----------
+        N : int
+            Number of draws.
+
+        Returns
+        -------
+        np.array
+        """
+        k = self._rng.choice(self.mu.size, size=N, p=self.weights)
+        z = _truncated_normal_ppf(self._rng.uniform(size=N), self._bot[k], self._top[k])
+        return np.exp(self.mu[k] + self.sigma[k] * z)
+
+    def _approx_equiprobable(self, N, endpoints=False):
+        """
+        A discrete approximation with N atoms of probability 1/N, each the
+        conditional mean of its bin, so the mean is exact.
+
+        Parameters
+        ----------
+        N : int
+            Number of atoms.
+        endpoints : bool, optional
+            Whether to add zero-probability atoms at the infimum and supremum,
+            by default False.
+
+        Returns
+        -------
+        DiscreteDistribution
+        """
+        cuts = self.ppf(np.arange(N + 1) / N)
+        pmv = np.ones(N) / N
+        atoms = N * self.partial_moment(1, cuts[:-1], cuts[1:])
+        if endpoints:
+            atoms = np.r_[self.infimum, atoms, self.supremum]
+            pmv = np.r_[0.0, pmv, 0.0]
+        limit = {"dist": self, "method": "equiprobable", "N": N, "endpoints": endpoints}
+        return DiscreteDistribution(pmv, atoms, seed=self.random_seed(), limit=limit)
+
+    def _approx_components(self, N, endpoints=False):
+        """
+        A discrete approximation component by component: each component with
+        weight discretized into N atoms of equal probability, the conditional
+        means of its bins, each carrying its component's weight over N, so the
+        mean is exact. The atoms are sorted.
+
+        Parameters
+        ----------
+        N : int
+            Number of atoms per component.
+        endpoints : bool, optional
+            Whether to add zero-probability atoms at the infimum and supremum,
+            by default False.
+
+        Returns
+        -------
+        DiscreteDistribution
+        """
+        parts = [
+            (w, part.discretize(N, method="equiprobable"))
+            for w, part in zip(self.weights, self.components)
+            if w > 0.0
+        ]
+        atoms = np.concatenate([approx.atoms[0] for _, approx in parts])
+        pmv = np.concatenate([w * approx.pmv for w, approx in parts])
+        order = np.argsort(atoms, kind="stable")
+        atoms, pmv = atoms[order], pmv[order]
+        if endpoints:
+            atoms = np.r_[self.infimum, atoms, self.supremum]
+            pmv = np.r_[0.0, pmv, 0.0]
+        limit = {"dist": self, "method": "components", "N": N, "endpoints": endpoints}
+        return DiscreteDistribution(pmv, atoms, seed=self.random_seed(), limit=limit)
+
+
 # The names these classes had before: they still work, with a DeprecationWarning
 Lognormal = _renamed_class(LogNormal, "Lognormal")
 MeanOneLogNormal = _renamed_class(LogNormalMeanOne, "MeanOneLogNormal")

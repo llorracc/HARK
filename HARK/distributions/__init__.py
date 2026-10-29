@@ -14,6 +14,7 @@ __all__ = [
     "TruncatedLogNormal",
     "MeanOneTruncatedLogNormal",
     "truncated_normal_variance",
+    "LogNormalMixture",
     "Normal",
     "MultivariateNormal",
     "MultivariateLogNormal",
@@ -46,6 +47,7 @@ from HARK.distributions.base import (
 from HARK.distributions.continuous import (
     LogNormal,
     LogNormalMeanOne,
+    LogNormalMixture,
     Lognormal,
     MeanOneLogNormal,
     LogNormalTruncated,
