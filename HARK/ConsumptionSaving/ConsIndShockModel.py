@@ -1415,6 +1415,230 @@ def calc_BegOfPrd_continuous(
     return E1, E2, E0
 
 
+def _law_end(law, upper):
+    """
+    One end of a law's support, and how the law holds probability there: 0 for a
+    mass, as a discrete law has at each end; otherwise the power k with which its
+    probability approaches the end, P(X within h of it) ~ h^k (_end_order), 1 for
+    a density positive there, as a law truncated there has; None where the law
+    approaches the end only through a tail, as an untruncated lognormal
+    approaches zero. A mixture (an object with weights and components, such as
+    LogNormalMixture) holds its end as the components with weight that reach it
+    do.
+    """
+    if isinstance(law, DiscreteDistribution):
+        x = np.asarray(law.atoms, dtype=float)
+        return (x.max() if upper else x.min()), 0
+    if hasattr(law, "components") and hasattr(law, "weights"):
+        parts = [
+            _law_end(part, upper)
+            for weight, part in zip(law.weights, law.components)
+            if weight > 0.0
+        ]
+        x = max(p[0] for p in parts) if upper else min(p[0] for p in parts)
+        held = [order for at, order in parts if at == x and order is not None]
+        return x, (min(held) if held else None)
+    lo, hi = _bounds(law)
+    x = hi if upper else lo
+    if lo == hi:
+        return x, 0  # a point
+    if not np.isfinite(x):
+        return x, None
+    return x, _end_order(law, x, upper)
+
+
+def _reaches_natural_limit(aNrm, mNrmMinNext, laws, Rfree, PermGroFac, CRRA):
+    """
+    Whether end-of-period assets aNrm leave next period's expected marginal value
+    infinite under the income shocks' laws, (PermShkLaw, TranShkLaw, UnempPrb,
+    IncUnemp) as get_income_shock_laws() returns them: whether some branch of
+    IndShock's income, the employed or the unemployed (a point mass in the
+    transitory shock), can land on next period's minimum cash-on-hand, where
+    consumption is zero, with enough probability. A mass there makes it infinite;
+    so does a positive density at the end of each of the d laws that set the
+    landing point otherwise, when CRRA >= d (_law_end). A law that approaches its
+    end only through a tail, as an untruncated lognormal approaches zero, puts
+    too little probability there.
+
+    Where this holds at the lowest assets allowed, the natural borrowing
+    constraint binds, and consumption falls to zero at it with no kink; where it
+    does not, the lowest assets are a constraint that binds, with a kink.
+    """
+    PermShkLaw, TranShkLaw, UnempPrb, IncUnemp = laws
+    branches = [TranShkLaw] if UnempPrb < 1.0 else []
+    if UnempPrb > 0.0:
+        branches.append(DiscreteDistribution([1.0], [IncUnemp]))
+    tol = 1e-12 * max(1.0, abs(mNrmMinNext))
+    for law in branches:
+        landing, order = _law_end(law, upper=False)
+        if order is None:
+            continue
+        if aNrm != 0.0:  # the permanent shock's worst end for this sign of aNrm
+            psi, psi_order = _law_end(PermShkLaw, upper=aNrm > 0.0)
+            if psi_order is None:
+                continue
+            landing += Rfree * aNrm / (PermGroFac * psi)
+            order += psi_order
+        if landing <= mNrmMinNext + tol and (order == 0 or CRRA >= order):
+            return True
+    return False
+
+
+# Where the natural constraint binds with no kink, the asset grid also takes
+# points placed by the transition of next period's consumption function, where
+# its MPC falls from near 1 toward its value under buffer-stock saving
+# (_natural_limit_assets). These constants are tuned, on five calibrations of
+# that case, not derived. The fractions of the MPC's fall at the transition's
+# lower and upper edges:
+TRANSITION_EDGES = (0.02, 0.6)
+# The distance above the limit to which the fall is measured, and the least fall
+# that makes a transition:
+TRANSITION_REFERENCE = 3.0
+TRANSITION_LEAST_FALL = 0.05
+# The half-width of the secant that reads a linear interpolant's MPC, whose
+# derivative steps at each gridpoint:
+TRANSITION_SECANT = 0.05
+# The points close to the limit, below the transition, across it and above it;
+# where the points below it start, as a fraction of its lower edge; and how far
+# the points above it reach, as a multiple of its upper edge in assets:
+TRANSITION_SPLIT = (2, 4, 8, 3)
+TRANSITION_BELOW_START = 0.3
+TRANSITION_ABOVE_TOP = 4.0
+
+
+def _mpc_transition(cFunc, mNrmMin, first, CubicBool):
+    """
+    The transition of a consumption function cFunc that falls to zero at the
+    natural limit mNrmMin with no kink, where its MPC falls from near 1 toward
+    its value under buffer-stock saving: the distances d = m - mNrmMin of the
+    transition's lower and upper edges, where the MPC has fallen by the
+    fractions TRANSITION_EDGES of its fall from its value just above the limit
+    to its value at d = TRANSITION_REFERENCE. None where the MPC falls by no
+    more than TRANSITION_LEAST_FALL, as a terminal consumption function's MPC
+    does not fall at all.
+
+    The MPC is read at 800 distances log-spaced from a thousandth of first, the
+    asset grid's first point, to 20: the derivative for a cubic (CubicBool), and
+    for linear interpolation the secant from d - TRANSITION_SECANT to
+    d + TRANSITION_SECANT. Each edge is interpolated between the two distances
+    around its crossing. Both keep the edges moving continuously with cFunc: an
+    edge read off a linear interpolant's derivative, or at the scanned distances
+    themselves, jumps, and an asset grid placed by it can then cycle forever
+    over an infinite horizon, where convergence is judged on the gridpoints.
+    """
+    d = np.geomspace(1e-3 * first, 20.0, 800)
+    if CubicBool:
+        mpc = cFunc.derivative(mNrmMin + d)
+    else:
+        below = np.maximum(d - TRANSITION_SECANT, 0.0)
+        mpc = (cFunc(mNrmMin + d + TRANSITION_SECANT) - cFunc(mNrmMin + below)) / (
+            d + TRANSITION_SECANT - below
+        )
+    top = mpc[0]
+    fall = top - np.interp(TRANSITION_REFERENCE, d, mpc)
+    if not fall > TRANSITION_LEAST_FALL:
+        return None
+    edges = []
+    for share in TRANSITION_EDGES:
+        level = top - share * fall
+        crossed = np.flatnonzero(mpc < level)
+        if crossed.size == 0 or crossed[0] == 0:
+            return None
+        i = crossed[0]
+        t = (mpc[i - 1] - level) / (mpc[i - 1] - mpc[i])
+        edges.append(d[i - 1] + t * (d[i] - d[i - 1]))
+    return edges[0], edges[1]
+
+
+def _natural_limit_assets(solution_next, mNrmMin, first, CubicBool):
+    """
+    The end-of-period assets the grid takes, besides its own, where the natural
+    constraint at mNrmMin binds with no kink. Consumption there stays close to
+    cash-on-hand down to the limit, then turns toward buffer-stock saving, and
+    the end-of-period value falls to minus infinity like a logarithm. As an
+    artificial constraint's kink is where it stops binding, that transition is
+    where the natural one stops pressing: the points cover the transition, the
+    first segment below it, and the end-of-period value near the limit.
+
+    The transition is located on next period's consumption function
+    (_mpc_transition), which stands in for this period's, and each distance d
+    above the limit maps to the end-of-period assets left by consuming c there,
+    a = d - c(d), with next period's c. With TRANSITION_SPLIT (2, 4, 8, 3) the
+    points are: 2 close to the limit, at a millionth and a thousandth of first,
+    the asset grid's first point above it; 4 evenly spaced in d from
+    TRANSITION_BELOW_START (0.3) times the transition's lower edge up to it; 8
+    log-spaced in assets across the transition; and 3 above it, up to
+    TRANSITION_ABOVE_TOP (4) times its upper edge in assets. Where next
+    period's consumption function has no transition, as when it is the terminal
+    one, they are 17 points half a decade apart, from 1e-6 to 100 times first.
+
+    The constants (the edges at 2% and 60% of the MPC's fall, the fall measured
+    to 3 above the limit, the secant's half-width 0.05, the split 2/4/8/3, and
+    0.3 and 4) are tuned, on five calibrations of the natural limit, not derived.
+    """
+    edges = _mpc_transition(
+        solution_next.cFunc, solution_next.mNrmMin, first, CubicBool
+    )
+    if edges is None:
+        return mNrmMin + first * np.geomspace(1e-6, 100.0, 17)
+    near, below, across, above = TRANSITION_SPLIT
+    d_lo, d_hi = edges
+    # the points below the transition, its lower edge and its upper edge, in assets
+    d = np.r_[np.linspace(TRANSITION_BELOW_START * d_lo, d_lo, below + 1), d_hi]
+    floor = 1e-6 * first
+    a = np.maximum(d - solution_next.cFunc(solution_next.mNrmMin + d), 10.0 * floor)
+    a_lo, a_hi = a[-2], max(a[-1], 4.0 * a[-2])
+    points = np.r_[
+        np.geomspace(floor, 1e-3 * first, near),
+        a[:-2],
+        np.geomspace(a_lo, a_hi, across),
+        np.geomspace(a_hi, TRANSITION_ABOVE_TOP * a_hi, above + 1)[1:],
+    ]
+    return mNrmMin + points
+
+
+def _calc_BegOfPrd_IndShock_continuous(
+    aNrm,
+    solution_next,
+    IncShkDstn,
+    Rfree,
+    PermGroFac,
+    CRRA,
+    CubicBool,
+    vFuncBool,
+    PermShkQuadCount,
+    TranShkQuadCount,
+):
+    """
+    IndShock's expectations against the laws IncShkDstn records: the employed
+    branch's calc_BegOfPrd_continuous() with weight 1 - p, and the unemployed
+    branch's, a point at the unemployment income, with weight p.
+    """
+    PermShkLaw, TranShkLaw, UnempPrb, IncUnemp = get_income_shock_laws(IncShkDstn)
+    branches = [(1.0 - UnempPrb, TranShkLaw)]
+    if UnempPrb > 0.0:
+        branches.append((UnempPrb, DiscreteDistribution([1.0], [IncUnemp])))
+    total = [0.0, 0.0, 0.0]
+    for prob, law in branches:
+        parts = calc_BegOfPrd_continuous(
+            aNrm,
+            solution_next,
+            PermShkLaw,
+            law,
+            Rfree,
+            PermGroFac,
+            CRRA,
+            CubicBool=CubicBool,
+            vFuncBool=vFuncBool,
+            PermShkQuadCount=PermShkQuadCount,
+            TranShkQuadCount=TranShkQuadCount,
+        )
+        total = [
+            None if part is None else t + prob * part for t, part in zip(total, parts)
+        ]
+    return tuple(total)
+
+
 def solve_one_period_ConsIndShock(
     solution_next,
     IncShkDstn,
@@ -1476,12 +1700,165 @@ def solve_one_period_ConsIndShock(
         Solution to this period's consumption-saving problem with income risk.
 
     """
+    return _solve_one_period_ConsIndShock(
+        solution_next,
+        IncShkDstn,
+        LivPrb,
+        DiscFac,
+        CRRA,
+        Rfree,
+        PermGroFac,
+        BoroCnstArt,
+        aXtraGrid,
+        vFuncBool,
+        CubicBool,
+        BoroCnstInfimum=BoroCnstInfimum,
+    )
+
+
+def solve_one_period_ConsIndShock_continuous(
+    solution_next,
+    IncShkDstn,
+    LivPrb,
+    DiscFac,
+    CRRA,
+    Rfree,
+    PermGroFac,
+    BoroCnstArt,
+    aXtraGrid,
+    vFuncBool,
+    CubicBool,
+    PermShkQuadCount=4,
+    TranShkQuadCount=4,
+    BoroCnstInfimum=True,
+):
+    """
+    Solves one period of the consumption-saving model of
+    solve_one_period_ConsIndShock with the expectation over the income shocks
+    taken against their continuous laws instead of summed over IncShkDstn's
+    atoms: IndShockConsumerType's solver with IncShkExpectation "continuous".
+
+    The laws are those IncShkDstn records (get_income_shock_laws): the
+    permanent shock's, the transitory shock's while employed, and the income in
+    unemployment, a point. Each branch's expectation is
+    calc_BegOfPrd_continuous(), split where next period's cash-on-hand reaches
+    its kink, which each solution records in mNrmKinks, or a knot of its
+    consumption function. Next period's kink then leaves no images in this
+    period's consumption function.
+
+    Three things differ from the solver over atoms. The natural borrowing
+    constraint comes from the laws' infima, which is where it lies under the
+    laws: from below it, a landing point m' = Rfree a / (PermGroFac psi) + theta
+    could fall below next period's minimum inside the shocks' support. The
+    asset grid starts at the constraint that binds, artificial or natural. Where
+    the artificial one binds, the consumption function has a kink where it stops
+    binding, the endogenous gridpoint of the constraint itself, at which the
+    first-order condition gives consumption directly (Deaton's x*); where the
+    natural one binds, consumption is zero at the limit and
+    there is no kink, so only the knots to split at in the period before, and
+    the value at the limit is minus infinity, as over atoms; the asset grid then
+    also takes points placed by the transition of next period's consumption
+    function, where its MPC falls from near 1, and close to the limit
+    (_natural_limit_assets). And the worst income
+    has no mass under continuous laws, so the MPC at the natural constraint is
+    one.
+
+    Parameters
+    ----------
+    solution_next : ConsumerSolution
+        The solution to next period's one period problem.
+    IncShkDstn : distribution.Distribution
+        A discrete approximation to the income process between the period being
+        solved and the one immediately following (in solution_next), recording
+        the laws its atoms come from, as IndShock's income constructor makes it.
+    LivPrb : float
+        Survival probability; likelihood of being alive at the beginning of
+        the succeeding period.
+    DiscFac : float
+        Intertemporal discount factor for future utility.
+    CRRA : float
+        Coefficient of relative risk aversion.
+    Rfree : float
+        Risk free interest factor on end-of-period assets.
+    PermGroFac : float
+        Expected permanent income growth factor at the end of this period.
+    BoroCnstArt: float or None
+        Borrowing constraint for the minimum allowable assets to end the
+        period with. If it is None, there is no artificial borrowing constraint.
+    aXtraGrid: np.array
+        Array of "extra" end-of-period asset values-- assets above the
+        artificial borrowing constraint.
+    vFuncBool: boolean
+        An indicator for whether the value function should be computed and
+        included in the reported solution.
+    CubicBool: boolean
+        An indicator for whether the solver should use cubic or linear interpolation.
+        The cubic consumption function is a ShapePreservingCubicInterp.
+    PermShkQuadCount : int, optional
+        Gauss-Legendre nodes a piece of the permanent shock's integral. The
+        default is 4.
+    TranShkQuadCount : int, optional
+        Gauss-Legendre nodes a piece of the transitory shock's integral. The
+        default is 4.
+    BoroCnstInfimum: boolean, optional
+        Whether the natural borrowing constraint is computed from the infima of
+        the true shock distributions, as in solve_one_period_ConsIndShock.
+        Default True. The continuous expectation takes it from the infima
+        either way.
+
+    Returns
+    -------
+    solution_now : ConsumerSolution
+        Solution to this period's consumption-saving problem with income risk,
+        with the cash-on-hand at which its constraint stops binding in
+        mNrmKinks, empty where the natural borrowing constraint binds.
+    """
+    return _solve_one_period_ConsIndShock(
+        solution_next,
+        IncShkDstn,
+        LivPrb,
+        DiscFac,
+        CRRA,
+        Rfree,
+        PermGroFac,
+        BoroCnstArt,
+        aXtraGrid,
+        vFuncBool,
+        CubicBool,
+        BoroCnstInfimum=BoroCnstInfimum,
+        continuous=(PermShkQuadCount, TranShkQuadCount),
+    )
+
+
+def _solve_one_period_ConsIndShock(
+    solution_next,
+    IncShkDstn,
+    LivPrb,
+    DiscFac,
+    CRRA,
+    Rfree,
+    PermGroFac,
+    BoroCnstArt,
+    aXtraGrid,
+    vFuncBool,
+    CubicBool,
+    BoroCnstInfimum=True,
+    continuous=None,
+):
+    """
+    The body of solve_one_period_ConsIndShock and of
+    solve_one_period_ConsIndShock_continuous: with continuous None, the
+    expectation over the income shocks is over IncShkDstn's atoms; with
+    continuous the pair (PermShkQuadCount, TranShkQuadCount), it is against the
+    laws IncShkDstn records.
+    """
     # Define the current period utility function and effective discount factor
     uFunc = UtilityFuncCRRA(CRRA)
     DiscFacEff = DiscFac * LivPrb  # "effective" discount factor
 
     # Calculate the probability that we get the worst possible income draw
-    WorstIncPrb = calc_worst_inc_prob(IncShkDstn)
+    # (under continuous laws the worst income has no mass)
+    WorstIncPrb = 0.0 if continuous else calc_worst_inc_prob(IncShkDstn)
     Ex_IncNext = expected(lambda x: x["PermShk"] * x["TranShk"], IncShkDstn)
     hNrmNow = calc_human_wealth(solution_next.hNrm, PermGroFac, Rfree, Ex_IncNext)
 
@@ -1504,11 +1881,25 @@ def solve_one_period_ConsIndShock(
     # atoms' marginal value is still finite, which left the first endogenous
     # gridpoint far above the bottom and broke the value function; PR #1589
     # reverted that.
-    if BoroCnstInfimum:
+    # Under the laws themselves, as the continuous expectation takes them, the
+    # infima's limit is the natural one.
+    if BoroCnstInfimum or continuous:
         BoroCnstInf = calc_boro_const_nat(
             solution_next.mNrmMin, IncShkDstn, Rfree, PermGroFac, use_infimum=True
         )
         mNrmMinNow = max(mNrmMinNow, BoroCnstInf)
+    # Whether the continuous expectation's consumption function has a kink: where
+    # the lowest assets allowed leave next period's marginal value finite, so that
+    # they are a constraint that binds, as an artificial one above the natural
+    # limit always is
+    kinked = continuous and not _reaches_natural_limit(
+        mNrmMinNow,
+        solution_next.mNrmMin,
+        get_income_shock_laws(IncShkDstn),
+        Rfree,
+        PermGroFac,
+        CRRA,
+    )
 
     # Update the bounding MPCs and PDV of human wealth:
     PatFac = calc_patience_factor(Rfree, DiscFacEff, CRRA)
@@ -1529,34 +1920,78 @@ def solve_one_period_ConsIndShock(
         np.array([0.0, 1.0]),
     )
 
-    # Construct the assets grid by adjusting aXtra by the natural borrowing constraint
-    aNrmNow = np.asarray(aXtraGrid) + BoroCnstNat
+    if continuous:
+        # Construct the assets grid from the binding constraint, and take the
+        # expectations against the income shocks' laws
+        aNrmNow = np.asarray(aXtraGrid) + mNrmMinNow
+        if kinked:
+            # The grid starts at the constraint itself, where the marginal value is
+            # finite: there the first-order condition gives consumption directly,
+            # and its endogenous gridpoint is the kink where the constraint stops
+            # binding, as in Deaton (1991) and BufferStockTheory
+            aNrmNow = np.insert(aNrmNow, 0, mNrmMinNow)
+        else:
+            # Where the natural constraint binds, consumption stays close to
+            # cash-on-hand down to the limit, then turns toward buffer-stock
+            # saving, and the end-of-period value falls to minus infinity like a
+            # logarithm: the grid also takes assets placed by the transition of
+            # next period's consumption function, where its MPC falls from near
+            # 1, covering the transition, the first segment below it and the
+            # end-of-period value near the limit
+            first = np.asarray(aXtraGrid)[0]
+            aNrmNow = np.union1d(
+                _natural_limit_assets(solution_next, mNrmMinNow, first, CubicBool),
+                aNrmNow,
+            )
+        aNrmExp = aNrmNow
+        E1, E2, E0 = _calc_BegOfPrd_IndShock_continuous(
+            aNrmExp,
+            solution_next,
+            IncShkDstn,
+            Rfree,
+            PermGroFac,
+            CRRA,
+            CubicBool,
+            vFuncBool,
+            *continuous,
+        )
+    else:
+        # Construct the assets grid by adjusting aXtra by the natural borrowing constraint
+        aNrmNow = np.asarray(aXtraGrid) + BoroCnstNat
 
     # Calculate end-of-period marginal value of assets at each gridpoint
     vPfacEff = DiscFacEff * Rfree * PermGroFac ** (-CRRA)
-    EndOfPrdvP = vPfacEff * expected(
-        calc_vp_next,
-        IncShkDstn,
-        args=(aNrmNow, Rfree, CRRA, PermGroFac, vPfuncNext),
-    )
+    if continuous:
+        EndOfPrdvP = vPfacEff * E1[-aNrmNow.size :]
+    else:
+        EndOfPrdvP = vPfacEff * expected(
+            calc_vp_next,
+            IncShkDstn,
+            args=(aNrmNow, Rfree, CRRA, PermGroFac, vPfuncNext),
+        )
 
     # Invert the first order condition to find optimal cNrm from each aNrm gridpoint
     cNrmNow = uFunc.derinv(EndOfPrdvP, order=(1, 0))
     mNrmNow = cNrmNow + aNrmNow  # Endogenous mNrm gridpoints
 
-    # Limiting consumption is zero as m approaches mNrmMin
+    # Limiting consumption is zero as m approaches the natural limit, under the
+    # continuous expectation the infima's where no artificial constraint binds
     c_for_interpolation = np.insert(cNrmNow, 0, 0.0)
-    m_for_interpolation = np.insert(mNrmNow, 0, BoroCnstNat)
+    m_limit = BoroCnstInf if continuous and not kinked else BoroCnstNat
+    m_for_interpolation = np.insert(mNrmNow, 0, m_limit)
 
     # Construct the consumption function as a cubic or linear spline interpolation
     if CubicBool:
         # Calculate end-of-period marginal marginal value of assets at each gridpoint
         vPPfacEff = DiscFacEff * Rfree * Rfree * PermGroFac ** (-CRRA - 1.0)
-        EndOfPrdvPP = vPPfacEff * expected(
-            calc_vpp_next,
-            IncShkDstn,
-            args=(aNrmNow, Rfree, CRRA, PermGroFac, vPPfuncNext),
-        )
+        if continuous:
+            EndOfPrdvPP = vPPfacEff * E2[-aNrmNow.size :]
+        else:
+            EndOfPrdvPP = vPPfacEff * expected(
+                calc_vpp_next,
+                IncShkDstn,
+                args=(aNrmNow, Rfree, CRRA, PermGroFac, vPPfuncNext),
+            )
         dcda = EndOfPrdvPP / uFunc.der(np.array(cNrmNow), order=2)
         MPC = dcda / (dcda + 1.0)
         MPC_for_interpolation = np.insert(MPC, 0, MPCmaxUnc)
@@ -1595,21 +2030,33 @@ def solve_one_period_ConsIndShock(
     # Construct this period's value function if requested
     if vFuncBool:
         # Calculate end-of-period value, its derivative, and their pseudo-inverse
-        EndOfPrdv = DiscFacEff * expected(
-            calc_v_next,
-            IncShkDstn,
-            args=(aNrmNow, Rfree, CRRA, PermGroFac, vFuncNext),
-        )
-        EndOfPrdvNvrs = uFunc.inv(
-            EndOfPrdv,
-        )  # value transformed through inverse utility
-        EndOfPrdvNvrsP = EndOfPrdvP * uFunc.derinv(EndOfPrdv, order=(0, 1))
-        EndOfPrdvNvrs = np.insert(EndOfPrdvNvrs, 0, 0.0)
-        EndOfPrdvNvrsP = np.insert(EndOfPrdvNvrsP, 0, EndOfPrdvNvrsP[0])
-        # This is a very good approximation, vNvrsPP = 0 at the asset minimum
+        if continuous:
+            # On the grid from an artificial constraint itself, where the value is
+            # finite; at the natural limit, as over atoms
+            EndOfPrdv = DiscFacEff * E0
+            EndOfPrdvNvrs = uFunc.inv(EndOfPrdv)
+            EndOfPrdvNvrsP = vPfacEff * E1 * uFunc.derinv(EndOfPrdv, order=(0, 1))
+            aNrm_temp = aNrmExp
+            if not kinked:
+                EndOfPrdvNvrs = np.insert(EndOfPrdvNvrs, 0, 0.0)
+                EndOfPrdvNvrsP = np.insert(EndOfPrdvNvrsP, 0, EndOfPrdvNvrsP[0])
+                aNrm_temp = np.insert(aNrmExp, 0, mNrmMinNow)
+        else:
+            EndOfPrdv = DiscFacEff * expected(
+                calc_v_next,
+                IncShkDstn,
+                args=(aNrmNow, Rfree, CRRA, PermGroFac, vFuncNext),
+            )
+            EndOfPrdvNvrs = uFunc.inv(
+                EndOfPrdv,
+            )  # value transformed through inverse utility
+            EndOfPrdvNvrsP = EndOfPrdvP * uFunc.derinv(EndOfPrdv, order=(0, 1))
+            EndOfPrdvNvrs = np.insert(EndOfPrdvNvrs, 0, 0.0)
+            EndOfPrdvNvrsP = np.insert(EndOfPrdvNvrsP, 0, EndOfPrdvNvrsP[0])
+            # This is a very good approximation, vNvrsPP = 0 at the asset minimum
+            aNrm_temp = np.insert(aNrmNow, 0, BoroCnstNat)
 
         # Construct the end-of-period value function
-        aNrm_temp = np.insert(aNrmNow, 0, BoroCnstNat)
         EndOfPrd_vNvrsFunc = CubicInterp(aNrm_temp, EndOfPrdvNvrs, EndOfPrdvNvrsP)
         EndOfPrd_vFunc = ValueFuncCRRA(EndOfPrd_vNvrsFunc, CRRA)
 
@@ -1649,6 +2096,11 @@ def solve_one_period_ConsIndShock(
         MPCmin=MPCminNow,
         MPCmax=MPCmaxNow,
     )
+    if continuous:
+        # Where the constraint stops binding, the gridpoint at the constraint: the
+        # period before splits there. Where the natural constraint binds,
+        # consumption is zero at the limit, with no kink.
+        solution_now.mNrmKinks = mNrmNow[:1] if kinked else np.array([])
     return solution_now
 
 
@@ -2878,6 +3330,9 @@ IndShockConsumerType_solving_default = {
     "BoroCnstInfimum": True,  # Whether the natural constraint uses the shocks' infima
     "vFuncBool": False,  # Whether to calculate the value function during solution
     "CubicBool": False,  # Whether to use cubic spline interpolation
+    "IncShkExpectation": "atoms",  # Expectation over the income shocks' atoms or "continuous" laws
+    "PermShkQuadCount": 4,  # Gauss-Legendre nodes a piece of the continuous permanent shock
+    "TranShkQuadCount": 4,  # Gauss-Legendre nodes a piece of the continuous transitory shock
 }
 IndShockConsumerType_simulation_default = {
     # PARAMETERS REQUIRED TO SIMULATE THE MODEL
@@ -2966,6 +3421,16 @@ class IndShockConsumerType(PerfForesightConsumerType):
     CubicBool: bool
         Whether to use cubic spline interpolation. The consumption function is then
         a ShapePreservingCubicInterp, which keeps concave data concave.
+    IncShkExpectation: str
+        How the solver takes the expectation over the income shocks: "atoms", the
+        default, sums over IncShkDstn's atoms; "continuous" integrates against
+        the laws IncShkDstn records (see solve_one_period_ConsIndShock_continuous).
+    PermShkQuadCount: int
+        With IncShkExpectation "continuous", Gauss-Legendre nodes a piece of the
+        permanent shock's integral; 4 by default.
+    TranShkQuadCount: int
+        With IncShkExpectation "continuous", Gauss-Legendre nodes a piece of the
+        transitory shock's integral; 4 by default.
 
     Simulation Parameters
     ---------------------
@@ -3063,6 +3528,7 @@ class IndShockConsumerType(PerfForesightConsumerType):
         # arguments it takes, so the default is harmless where the solver ignores it.
         if not hasattr(self, "BoroCnstInfimum"):
             self.assign_parameters(BoroCnstInfimum=True)
+        self.use_IncShkExpectation()
 
     def update_income_process(self):
         self.update("IncShkDstn", "PermShkDstn", "TranShkDstn")
@@ -3271,10 +3737,21 @@ class IndShockConsumerType(PerfForesightConsumerType):
         self.eulerErrorFunc = eulerErrorFunc
 
     def pre_solve(self):
+        self.use_IncShkExpectation()
         self.check_restrictions()
         self.construct("solution_terminal")
         if not self.quiet:
             self.check_conditions(verbose=self.verbose)
+
+    def assign_parameters(self, **kwds):
+        """
+        Assign parameters as AgentType.assign_parameters does, and point
+        solve_one_period at the solver for IncShkExpectation if it is among them.
+        """
+        super().assign_parameters(**kwds)
+        # While the agent is being made, its __init__ does this at the end
+        if "IncShkExpectation" in kwds and "time_inv" in self.__dict__:
+            self.use_IncShkExpectation()
 
     def solver_takes(self, name):
         """
@@ -3292,6 +3769,56 @@ class IndShockConsumerType(PerfForesightConsumerType):
         if hasattr(self.solve_one_period, "__getitem__"):
             return False  # a sequence of solvers, one per period
         return name in get_arg_names(self.solve_one_period)
+
+    def solve(self, *args, **kwds):
+        """
+        Solve the model, as AgentType.solve does, after setting solve_one_period
+        for IncShkExpectation (use_IncShkExpectation), which reaches the
+        subclasses whose pre_solve does not call this one's.
+        """
+        self.use_IncShkExpectation()
+        return super().solve(*args, **kwds)
+
+    def use_IncShkExpectation(self):
+        """
+        Point solve_one_period at IndShock's solver for IncShkExpectation:
+        solve_one_period_ConsIndShock for "atoms", and
+        solve_one_period_ConsIndShock_continuous for "continuous", which then
+        also reads PermShkQuadCount and TranShkQuadCount. A type whose solver is
+        another one takes the expectation over the atoms, and "continuous"
+        raises.
+
+        It runs when the agent is made, when assign_parameters sets the option,
+        and in pre_solve and solve, so that code calling solve_one_period after
+        pre_solve gets the solver the option names, as solve does, and so do
+        the subclasses whose pre_solve does not call this class's. An option set
+        directly as an attribute takes effect at the next pre_solve or solve.
+        """
+        expectation = getattr(self, "IncShkExpectation", "atoms")
+        if expectation not in ("atoms", "continuous"):
+            raise ValueError(
+                'IncShkExpectation must be "atoms" or "continuous", not '
+                f"{expectation!r}."
+            )
+        indshock = (
+            solve_one_period_ConsIndShock,
+            solve_one_period_ConsIndShock_continuous,
+        )
+        if self.solve_one_period not in indshock:
+            if expectation == "continuous":
+                raise NotImplementedError(
+                    f"{type(self).__name__}'s solver takes the expectation over the "
+                    'income shocks\' atoms only; IncShkExpectation "continuous" is '
+                    "an option of IndShockConsumerType's solver."
+                )
+            return
+        if expectation == "continuous":
+            self.solve_one_period = solve_one_period_ConsIndShock_continuous
+            for name in ("PermShkQuadCount", "TranShkQuadCount"):
+                if name not in self.time_inv:
+                    self.time_inv.append(name)
+        else:
+            self.solve_one_period = solve_one_period_ConsIndShock
 
     def describe_parameters(self):
         """
