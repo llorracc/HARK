@@ -656,6 +656,16 @@ def solve_one_period_ConsPF(
 def calc_worst_inc_prob(inc_shk_dstn, use_infimum=False):
     """Calculate the probability of the worst income shock.
 
+    With use_infimum=True, the probability the atoms put on the worst income
+    under the true laws, the product of the infima recorded in
+    inc_shk_dstn.limit["infimum"]: zero unless an atom sits there, as a point
+    mass of the laws does (unemployment that pays nothing, or a discrete law's
+    lowest atom). An infimum the laws reach only continuously carries an
+    infinitesimal probability, which sets the natural borrowing constraint
+    (calc_boro_const_nat) but no weight in any expectation. With
+    use_infimum=False, the probability of the lowest atom, which moves with the
+    number of atoms.
+
     Args:
         inc_shk_dstn (DiscreteDistribution): Distribution of shocks to income.
         use_infimum (bool): Indicator for whether to try to use the infimum of the limiting (true) income distribution.
@@ -674,6 +684,20 @@ def calc_boro_const_nat(
     m_nrm_min_next, inc_shk_dstn, rfree, perm_gro_fac, use_infimum=False
 ):
     """Calculate the natural borrowing constraint.
+
+    The natural borrowing constraint belongs to the model, not to the method
+    that solves it. With use_infimum=True it is computed from the infima of the
+    true shock laws, recorded in inc_shk_dstn.limit["infimum"]: each is treated
+    as a realization of infinitesimal but positive probability, positive so that
+    the consumer must be able to repay even there, infinitesimal so that it
+    carries no weight in any expectation. Every discretization of the same laws,
+    and the continuous expectation, then has the same constraint, which
+    IndShock's solver imposes. A discrete law records its lowest atom as its
+    infimum, so for it the two coincide. With use_infimum=False it is the atoms'
+    own limit, from the lowest atoms, which moves with the number of atoms;
+    IndShock's solver uses it only to anchor its unconstrained consumption
+    function below the imposed constraint, a numerical device that does not
+    show in the solution.
 
     Args:
         m_nrm_min_next (float): Minimum normalized market resources next period.
@@ -896,7 +920,9 @@ def solve_one_period_ConsIndShock(
     uFunc = UtilityFuncCRRA(CRRA)
     DiscFacEff = DiscFac * LivPrb  # "effective" discount factor
 
-    # Calculate the probability that we get the worst possible income draw
+    # Calculate the probability that we get the worst possible income draw: over
+    # the atoms, the probability of the lowest, which sets the MPC at the atoms'
+    # own limit, where the unconstrained consumption function is anchored
     WorstIncPrb = calc_worst_inc_prob(IncShkDstn)
     Ex_IncNext = expected(lambda x: x["PermShk"] * x["TranShk"], IncShkDstn)
     hNrmNow = calc_human_wealth(solution_next.hNrm, PermGroFac, Rfree, Ex_IncNext)
@@ -921,6 +947,22 @@ def solve_one_period_ConsIndShock(
     # Set the minimum allowable (normalized) market resources based on the natural
     # and artificial borrowing constraints
     mNrmMinNow = calc_m_nrm_min(BoroCnstArt, BoroCnstNat)
+    # The natural limit belongs to the model: it comes from the true laws'
+    # infima, each a realization of infinitesimal but positive probability
+    # (calc_boro_const_nat), so every discretization of the same laws has the
+    # same one. The atoms' own limit, below it, still anchors the unconstrained
+    # consumption function, where the atoms' marginal value is infinite, so the
+    # infima's limit is imposed as a constraint, as BoroCnstArt is: where it is
+    # above the atoms' limit it binds on the atoms, the asset grid starts at it
+    # and the solution records its kink, which is the limit of the solutions as
+    # the infima's probability goes to zero. Making it BoroCnstNat itself, as PR
+    # #1524 did, anchored the grid where the atoms' marginal value is still
+    # finite, which left the first endogenous gridpoint far above the bottom and
+    # broke the value function; PR #1589 reverted that.
+    BoroCnstInf = calc_boro_const_nat(
+        solution_next.mNrmMin, IncShkDstn, Rfree, PermGroFac, use_infimum=True
+    )
+    mNrmMinNow = max(mNrmMinNow, BoroCnstInf)
 
     # Update the bounding MPCs and PDV of human wealth:
     PatFac = calc_patience_factor(Rfree, DiscFacEff, CRRA)
@@ -1101,6 +1143,9 @@ def solve_one_period_ConsIndShock(
         MPCaboveKink=MPCaboveKink,
     )
     return solution_now
+
+
+solve_one_period_ConsIndShock.imposes_infimum_limit = True
 
 
 def solve_one_period_ConsKinkedR(
@@ -2730,6 +2775,19 @@ class IndShockConsumerType(PerfForesightConsumerType):
         if not self.quiet:
             self.check_conditions(verbose=self.verbose)
 
+    def solver_imposes_infimum_limit(self):
+        """
+        Whether this agent's one period solver imposes the natural borrowing
+        constraint from the true shock laws' infima (calc_boro_const_nat), as
+        its mark imposes_infimum_limit says. Other models' solvers still use
+        the atoms' limit.
+
+        Returns
+        -------
+        bool
+        """
+        return getattr(self.solve_one_period, "imposes_infimum_limit", False)
+
     def describe_parameters(self):
         """
         Generate a string describing the primitive model parameters that will
@@ -2868,6 +2926,11 @@ class IndShockConsumerType(PerfForesightConsumerType):
 
         # Find the upper bound of the MPC as market resources approach the minimum
         BoroCnstArt = -np.inf if self.BoroCnstArt is None else self.BoroCnstArt
+        if self.solver_imposes_infimum_limit():
+            # The limit implied by the true distributions' infima binds like BoroCnstArt
+            PermShkInf, TranShkInf = self.IncShkDstn[0].limit["infimum"]
+            temp = PermShkInf * aux_dict["FHWFac"]
+            BoroCnstArt = max(BoroCnstArt, -TranShkInf * temp / (1.0 - temp))
         if BoroCnstNat < BoroCnstArt:
             MPCmax = 1.0  # if natural borrowing constraint is overridden by artificial one, MPCmax is 1
         else:
