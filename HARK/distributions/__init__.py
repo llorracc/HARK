@@ -4,8 +4,9 @@ __all__ = [
     "cdf_invert",
     "Distribution",
     "IndexDistribution",
-    "Lognormal",
     "LogNormal",
+    "LogNormalMeanOne",
+    "Lognormal",
     "MeanOneLogNormal",
     "Normal",
     "MultivariateNormal",
@@ -36,8 +37,9 @@ from HARK.distributions.base import (
     MarkovProcess,
 )
 from HARK.distributions.continuous import (
-    Lognormal,
     LogNormal,
+    LogNormalMeanOne,
+    Lognormal,
     MeanOneLogNormal,
     Normal,
     Uniform,

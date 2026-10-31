@@ -10,9 +10,9 @@ from HARK.distributions import (
     DiscreteDistribution,
     DiscreteDistributionLabeled,
     IndexDistribution,
-    Lognormal,
+    LogNormal,
     MarkovProcess,
-    MeanOneLogNormal,
+    LogNormalMeanOne,
     Normal,
     Uniform,
     Weibull,
@@ -131,8 +131,8 @@ class DiscreteDistributionTests(unittest.TestCase):
 
         self.assertAlmostEqual(ce7.flat[3], 3.0)
 
-        PermShkDstn = MeanOneLogNormal().discretize(200, method="equiprobable")
-        TranShkDstn = MeanOneLogNormal().discretize(200, method="equiprobable")
+        PermShkDstn = LogNormalMeanOne().discretize(200, method="equiprobable")
+        TranShkDstn = LogNormalMeanOne().discretize(200, method="equiprobable")
         IncShkDstn = combine_indep_dstns(PermShkDstn, TranShkDstn)
 
         ce8 = expected(lambda atoms: atoms[0] + atoms[1], IncShkDstn, vectorized=False)
@@ -184,8 +184,8 @@ class DiscreteDistributionTests(unittest.TestCase):
 
         self.assertAlmostEqual(ce7.flat[3], 3.0)
 
-        PermShkDstn = MeanOneLogNormal().discretize(200, method="equiprobable")
-        TranShkDstn = MeanOneLogNormal().discretize(200, method="equiprobable")
+        PermShkDstn = LogNormalMeanOne().discretize(200, method="equiprobable")
+        TranShkDstn = LogNormalMeanOne().discretize(200, method="equiprobable")
         IncShkDstn = combine_indep_dstns(PermShkDstn, TranShkDstn)
 
         ce8 = expected(lambda atoms: atoms[0] + atoms[1], dstn=IncShkDstn)
@@ -391,10 +391,10 @@ class DistributionClassTests(unittest.TestCase):
     """
 
     def test_drawMeanOneLognormal(self):
-        MeanOneLogNormal().draw(1)[0]
+        LogNormalMeanOne().draw(1)[0]
 
     def test_Lognormal(self):
-        dist = Lognormal()
+        dist = LogNormal()
 
         dist.draw(1)[0]
 
@@ -404,14 +404,14 @@ class DistributionClassTests(unittest.TestCase):
         dist.draw(1)[0]
 
     def test_Lognormal_hermite_discretizer(self):
-        dstn = Lognormal(mu=0.5, sigma=0.2)
+        dstn = LogNormal(mu=0.5, sigma=0.2)
         discrete_dstn = dstn.discretize(9, method="hermite")
         exp_discrete = np.dot(discrete_dstn.pmv, discrete_dstn.atoms.T)
         self.assertAlmostEqual(dstn.mean(), exp_discrete)
         self.assertAlmostEqual(np.sum(discrete_dstn.pmv), 1.0)
 
     def test_Lognormal_from_mean_std(self):
-        dstn = Lognormal(mean=1.3, std=0.4)
+        dstn = LogNormal(mean=1.3, std=0.4)
         self.assertAlmostEqual(1.3, dstn.mean())
 
     def test_Normal(self):
@@ -559,7 +559,7 @@ class IndexDistributionClassTests(unittest.TestCase):
 
     def test_IndexDistribution_approx(self):
         cd = IndexDistribution(
-            Lognormal, {"mu": [0.01, 0.5, 0.99], "sigma": [0.05, 0.05, 0.05]}, seed=0
+            LogNormal, {"mu": [0.01, 0.5, 0.99], "sigma": [0.05, 0.05, 0.05]}, seed=0
         )
 
         approx = cd.discretize(10)
@@ -569,7 +569,7 @@ class IndexDistributionClassTests(unittest.TestCase):
         self.assertAlmostEqual(draw[1], 2.70826, places=HARK_PRECISION)
 
     def test_IndexDistribution_seeds(self):
-        cd = IndexDistribution(Lognormal, {"mu": [1, 1], "sigma": [1, 1]})
+        cd = IndexDistribution(LogNormal, {"mu": [1, 1], "sigma": [1, 1]})
 
         draw_0 = cd[0].draw(1).tolist()
         draw_1 = cd[1].draw(1).tolist()
@@ -945,8 +945,8 @@ class DiscreteDistributionLabeledTests(unittest.TestCase):
         self.assertAlmostEqual(exp[3], si_b**2)
 
     def test_self_expected_value(self):
-        PermShkDstn = MeanOneLogNormal().discretize(200, method="equiprobable")
-        TranShkDstn = MeanOneLogNormal().discretize(200, method="equiprobable")
+        PermShkDstn = LogNormalMeanOne().discretize(200, method="equiprobable")
+        TranShkDstn = LogNormalMeanOne().discretize(200, method="equiprobable")
         IncShkDstn = combine_indep_dstns(
             PermShkDstn,
             TranShkDstn,
@@ -978,8 +978,8 @@ class DiscreteDistributionLabeledTests(unittest.TestCase):
 
     def test_labels_parameter(self):
         """Test that labels=True uses dict indexing and labels=False uses integer indexing."""
-        PermShkDstn = MeanOneLogNormal().discretize(200, method="equiprobable")
-        TranShkDstn = MeanOneLogNormal().discretize(200, method="equiprobable")
+        PermShkDstn = LogNormalMeanOne().discretize(200, method="equiprobable")
+        TranShkDstn = LogNormalMeanOne().discretize(200, method="equiprobable")
         IncShkDstn = combine_indep_dstns(PermShkDstn, TranShkDstn)
         IncShkDstn = DiscreteDistributionLabeled.from_unlabeled(
             IncShkDstn,
