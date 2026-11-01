@@ -1533,9 +1533,7 @@ class PerfForesightConsumerType(AgentType):
         """
         # Determine who dies
         DiePrb_by_t_cycle = 1.0 - np.asarray(self.LivPrb)
-        DiePrb = DiePrb_by_t_cycle[
-            self.t_cycle - 1 if self.cycles == 1 else self.t_cycle
-        ]  # Time has already advanced, so look back one
+        DiePrb = DiePrb_by_t_cycle[self.get_inbound_index()]
 
         # In finite-horizon problems the previous line gives newborns the
         # survival probability of the last non-terminal period. This is okay,
@@ -1616,8 +1614,7 @@ class PerfForesightConsumerType(AgentType):
         None
         """
         PermGroFac = np.array(self.PermGroFac)
-        # Cycle time has already been advanced
-        self.shocks["PermShk"] = PermGroFac[self.t_cycle - 1]
+        self.shocks["PermShk"] = PermGroFac[self.get_inbound_index()]
         # self.shocks["PermShk"][self.t_cycle == 0] = 1. # Add this at some point
         self.shocks["TranShk"] = np.ones(self.AgentCount)
 
@@ -1636,7 +1633,7 @@ class PerfForesightConsumerType(AgentType):
              Array of size self.AgentCount with risk free interest rate for each agent.
         """
         Rfree_array = np.array(self.Rfree)
-        return Rfree_array[self.t_cycle - 1]
+        return Rfree_array[self.get_inbound_index()]
 
     def transition(self):
         pLvlPrev = self.state_prev["pLvl"]
@@ -2380,7 +2377,7 @@ class IndShockConsumerType(PerfForesightConsumerType):
         base_draws_dict = {}
         for s in np.unique(self.t_cycle):
             idx = self.t_cycle == s
-            t = s - 1
+            t = self.get_inbound_index(s)
 
             N = np.sum(idx)
             if N > 0:

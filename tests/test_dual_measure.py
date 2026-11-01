@@ -598,14 +598,13 @@ def _cyclical_agent(cls, seed=4242, agent_count=4000, t_sim=8):
 def test_q_draws_use_the_same_period_as_p_in_a_cyclical_model():
     """P and Q must index the income process with the same offset.
 
-    `_draw_Q_shocks_indshock` used `t - 1 if cycles == 1 else t`, while the P
-    side (`IndShockConsumerType.get_shocks`) uses `t - 1` unconditionally and
-    so does the Markov Q path.  At `cycles=0, T_cycle=2` that put Q a period
-    ahead of P in both `IncShkDstn_Q` and `PermGroFac`, so the two measures
-    were drawing from different periods' income processes within the same
-    simulated period -- which also breaks the shared-base-draw coupling the
-    module exists for, since Q inverted period t-1's uniforms through period
-    t's CDF.
+    `_draw_Q_shocks_indshock` once used `t - 1 if cycles == 1 else t`, while
+    the P side (`IndShockConsumerType.get_shocks`) and the Markov Q path used
+    `t - 1` for every cycle.  At `cycles=0, T_cycle=2` the two measures then
+    drew from different periods' income processes within the same simulated
+    period -- which also breaks the shared-base-draw coupling the module
+    exists for, since Q inverted one period's uniforms through the other
+    period's CDF.  Both now take the index from `get_inbound_index`.
 
     The two periods differ in PermGroFac (1.00 vs 1.50), so getting the offset
     wrong shifts the Q permanent-shock mean by about 50%.

@@ -490,10 +490,10 @@ class RepAgentMarkovConsumerType(RepAgentConsumerType):
             self.MrkvArray, seed=self.RNG.integers(0, 2**31 - 1)
         ).draw(self.shocks["Mrkv"])
 
-        t = self.t_cycle[0]
+        t = self.get_inbound_index(self.t_cycle[0])
         i = self.shocks["Mrkv"]
-        IncShkDstnNow = self.IncShkDstn[t - 1][i]  # set current income distribution
-        PermGroFacNow = self.PermGroFac[t - 1][i]  # and permanent growth factor
+        IncShkDstnNow = self.IncShkDstn[t][i]  # set current income distribution
+        PermGroFacNow = self.PermGroFac[t][i]  # and permanent growth factor
         # Get random draws of income shocks from the discrete distribution
         EventDraw = IncShkDstnNow.draw_events(1)
         PermShkNow = (

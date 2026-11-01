@@ -434,12 +434,13 @@ class DualMeasureMixin:
         PermShkQ = np.zeros(self.AgentCount)
         TranShkQ = np.zeros(self.AgentCount)
 
-        # Index t - 1 for every cycle, as in IndShockConsumerType.get_shocks.
+        # The same index as IndShockConsumerType.get_shocks.
         for t in np.unique(self.t_cycle):
+            t_in = self.get_inbound_index(t)
             _fill_Q_cell(
                 self.t_cycle == t,
-                self.IncShkDstn_Q[t - 1],
-                self.PermGroFac[t - 1],
+                self.IncShkDstn_Q[t_in],
+                self.PermGroFac[t_in],
                 base_draws_dict.get(t),
                 PermShkQ,
                 TranShkQ,
@@ -488,10 +489,11 @@ class DualMeasureMixin:
             for j in range(self.MrkvArray[t].shape[0]):
                 these = np.logical_and(t == self.t_cycle, j == MrkvNow)
                 if np.any(these):
+                    t_in = self.get_inbound_index(t)
                     _fill_Q_cell(
                         these,
-                        self.IncShkDstn_Q[t - 1][j],
-                        self.PermGroFac[t - 1][j],
+                        self.IncShkDstn_Q[t_in][j],
+                        self.PermGroFac[t_in][j],
                         base_draws_dict.get((t, j)),
                         PermShkQ,
                         TranShkQ,
