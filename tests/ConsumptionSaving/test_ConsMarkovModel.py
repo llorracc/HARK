@@ -408,9 +408,10 @@ class testDeathShuffleMarkov(unittest.TestCase):
 
 
 class testTimeVaryingSimulationTiming(unittest.TestCase):
-    """The simulator must use the period-(t - 1) MrkvArray and Rfree that the
-    solver used for the move from t - 1 to t, as it already does for
-    IncShkDstn and PermGroFac. Both are invisible when they are constant."""
+    """The simulator must use the MrkvArray and Rfree that the solver used for
+    the move into each period, as it does for IncShkDstn and PermGroFac: index
+    t - 1 for the move from t - 1 to t in a life cycle, and index t in a
+    cyclical model. Both are invisible when they are constant."""
 
     T = 4
 
@@ -455,14 +456,15 @@ class testTimeVaryingSimulationTiming(unittest.TestCase):
         np.testing.assert_array_equal(agent.history["Mrkv"][:, 0], [0, 0, 0, 1])
 
     def test_markov_transition_timing_cyclical(self):
-        # Infinite horizon with T_cycle = 2: MrkvArray[1] governs the move from
-        # period 1 back to period 0, so agents switch entering period 0 (t = 2).
+        # Infinite horizon with T_cycle = 2: MrkvArray[1] governs the move into
+        # period 1, so agents switch entering period 1 (t = 1), as the solver
+        # assumes when it builds solution[0] with MrkvArray[1].
         MrkvArray = [np.eye(2), np.array([[0.0, 1.0], [0.0, 1.0]])]
         agent = self._make_agent(MrkvArray, [1.02, 1.02], cycles=0)
         agent.track_vars = ["Mrkv"]
         agent.initialize_sim()
         agent.simulate()
-        np.testing.assert_array_equal(agent.history["Mrkv"][:, 0], [0, 0, 1, 1])
+        np.testing.assert_array_equal(agent.history["Mrkv"][:, 0], [0, 1, 1, 1])
 
     def test_rfree_timing(self):
         Rfree = [1.01 + 0.01 * t for t in range(self.T)]

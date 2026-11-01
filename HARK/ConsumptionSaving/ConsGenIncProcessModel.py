@@ -851,7 +851,9 @@ class GenIncProcessConsumerType(IndShockConsumerType):
         for t in range(self.T_cycle):
             these = t == self.t_cycle
             pLvlNow[these] = (
-                self.pLvlNextFunc[t - 1](self.state_prev["pLvl"][these])
+                self.pLvlNextFunc[self.get_inbound_index(t)](
+                    self.state_prev["pLvl"][these]
+                )
                 * self.shocks["PermShk"][these]
             )
 

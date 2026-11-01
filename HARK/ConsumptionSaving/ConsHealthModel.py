@@ -644,7 +644,7 @@ class BasicHealthConsumerType(AgentType):
         DeprRte_now = np.empty(self.AgentCount)
         for t in range(self.T_cycle):
             these = self.t_cycle == t
-            dstn = self.ShockDstn[t - 1]
+            dstn = self.ShockDstn[self.get_inbound_index(t)]
             N = np.sum(these)
             Shocks = dstn.draw(N)
             WageRte_now[these] = Shocks[0, :]
@@ -659,7 +659,7 @@ class BasicHealthConsumerType(AgentType):
         """
         kLvlNow = self.state_prev["aLvl"]
         HLvlPrev = self.state_prev["HLvl"]
-        RfreeNow = np.array(self.Rfree)[self.t_cycle - 1]
+        RfreeNow = np.array(self.Rfree)[self.get_inbound_index()]
         hLvlNow = (1.0 - self.shocks["DeprRte"]) * HLvlPrev
         yLvlNow = self.shocks["WageRte"] * hLvlNow
         mLvlNow = RfreeNow * kLvlNow + yLvlNow

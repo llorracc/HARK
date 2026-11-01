@@ -478,10 +478,9 @@ class IndShockRiskyAssetConsumerType(IndShockConsumerType):
 
             else:
                 # Make use of the IndexDistribution.draw() method
+                # Newborns in a life cycle draw from the first period's law
                 self.shocks["Risky"] = self.RiskyDstn.draw(
-                    np.maximum(self.t_cycle - 1, 0)
-                    if self.cycles == 1
-                    else self.t_cycle
+                    np.maximum(self.get_inbound_index(), 0)
                 )
 
         else:
@@ -507,7 +506,7 @@ class IndShockRiskyAssetConsumerType(IndShockConsumerType):
         """
         if "AdjustPrb" in self.time_vary:
             self.shocks["Adjust"] = self.AdjustDstn.draw(
-                np.maximum(self.t_cycle - 1, 0) if self.cycles == 1 else self.t_cycle
+                np.maximum(self.get_inbound_index(), 0)
             )
         else:
             self.shocks["Adjust"] = self.AdjustDstn.draw(self.AgentCount)

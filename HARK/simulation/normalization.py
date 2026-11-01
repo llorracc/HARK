@@ -149,14 +149,14 @@ class _NormalizationIndexMixin:
     def _income_dstn_index(self):
         """Per-agent index into ``IncShkDstn`` / ``PermGroFac`` for this period.
 
-        Mirrors ``IndShockConsumerType.get_shocks``: agents at ``t_cycle == j``
-        use index ``j - 1`` (so ``t_cycle == 0`` wraps to the last period),
-        while newborns are special-cased to index 0. Valid only before
-        ``t_age`` and ``t_cycle`` are advanced, i.e. anywhere inside
+        Mirrors ``IndShockConsumerType.get_shocks``: agents use
+        ``get_inbound_index`` (in a life cycle, ``t_cycle == 0`` wraps to the
+        last period), while newborns are special-cased to index 0. Valid only
+        before ``t_age`` and ``t_cycle`` are advanced, i.e. anywhere inside
         ``sim_one_period``.
         """
         t_cycle = np.asarray(self.t_cycle, dtype=int)
-        idx = (t_cycle - 1) % self._T_cycle
+        idx = self.get_inbound_index(t_cycle) % self._T_cycle
         newborn = np.asarray(self.t_age, dtype=int) == 0
         return np.where(newborn, 0, idx)
 

@@ -1126,8 +1126,8 @@ class AggShockMarkovConsumerType(AggShockConsumerType):
             if np.any(these):
                 N = np.sum(these)
                 # set current income distribution and permanent growth factor
-                IncShkDstnNow = self.IncShkDstn[t - 1][Mrkv]
-                PermGroFacNow = self.PermGroFac[t - 1]
+                IncShkDstnNow = self.IncShkDstn[self.get_inbound_index(t)][Mrkv]
+                PermGroFacNow = self.PermGroFac[self.get_inbound_index(t)]
 
                 # Get random draws of income shocks from the discrete distribution
                 ShockDraws = IncShkDstnNow.draw(N, shuffle=True)

@@ -2575,7 +2575,7 @@ def _build_periods(
                 else:
                     new_param_dict[name] = getattr(agent.solution[t], name)
             elif name in time_vary:
-                s = (t_cycle - 1) if name in offset else t_cycle
+                s = agent.get_inbound_index(t_cycle) if name in offset else t_cycle
                 attr = getattr(agent, name, None)
                 if attr is None:
                     raise ValueError(

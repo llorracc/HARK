@@ -984,9 +984,7 @@ class MarkovConsumerType(IndShockConsumerType):
             Boolean array of size AgentCount indicating which agents die.
         """
         # Determine who dies
-        LivPrb = np.array(self.LivPrb)[
-            self.t_cycle - 1, self.shocks["Mrkv"]
-        ]  # Time has already advanced, so look back one
+        LivPrb = np.array(self.LivPrb)[self.get_inbound_index(), self.shocks["Mrkv"]]
         DiePrb = 1.0 - LivPrb
         if getattr(self, "death_shuffle", False):
             which_agents = self._sim_death_shuffled(DiePrb)
@@ -1054,12 +1052,13 @@ class MarkovConsumerType(IndShockConsumerType):
         # warning per element of T_cycle when pLvl is missing.
         pLvl_prev = resolve_balanced_sort_key(self)
 
-        # Agents with t_cycle == t are entering period t, so they move by
-        # MrkvArray[t - 1], the matrix the solver used for t - 1 -> t (as
-        # get_shocks reads IncShkDstn[t - 1]). At t == 0 the index wraps.
+        # Agents with t_cycle == t are entering period t, so they move by the
+        # matrix the solver used for the move into t, as get_shocks does for
+        # IncShkDstn: MrkvArray[t - 1] in a life cycle, MrkvArray[t] otherwise.
         for t in range(self.T_cycle):
             markov_process = MarkovProcess(
-                self.MrkvArray[t - 1], seed=self.RNG.integers(0, 2**31 - 1)
+                self.MrkvArray[self.get_inbound_index(t)],
+                seed=self.RNG.integers(0, 2**31 - 1),
             )
             right_age = self.t_cycle == t
             # Sorting by pLvl systematically samples the agents chosen for
@@ -1104,12 +1103,9 @@ class MarkovConsumerType(IndShockConsumerType):
                 these = np.logical_and(t == self.t_cycle, j == MrkvNow)
                 N = np.sum(these)
                 if N > 0:
-                    IncShkDstnNow = self.IncShkDstn[t - 1][
-                        j
-                    ]  # set current income distribution
-                    PermGroFacNow = self.PermGroFac[t - 1][
-                        j
-                    ]  # and permanent growth factor
+                    t_in = self.get_inbound_index(t)
+                    IncShkDstnNow = self.IncShkDstn[t_in][j]  # income distribution
+                    PermGroFacNow = self.PermGroFac[t_in][j]  # permanent growth factor
 
                     # Draw income shocks from the discrete distribution
                     if getattr(self, "income_shuffle", False):
@@ -1211,9 +1207,10 @@ class MarkovConsumerType(IndShockConsumerType):
         RfreeNow = np.zeros(self.AgentCount)
         for t in range(self.T_cycle):
             these = self.t_cycle == t
-            # Rfree[t - 1] is the return the solver applied to assets saved in
-            # period t - 1, which agents with t_cycle == t now receive.
-            RfreeNow[these] = self.Rfree[t - 1][self.shocks["Mrkv"][these]]
+            # The return the solver applied to assets saved in period t - 1,
+            # which agents with t_cycle == t now receive.
+            t_in = self.get_inbound_index(t)
+            RfreeNow[these] = self.Rfree[t_in][self.shocks["Mrkv"][these]]
         return RfreeNow
 
     def get_controls(self):

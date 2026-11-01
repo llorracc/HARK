@@ -1096,6 +1096,9 @@ class AgentType(Model):
         model, with a certain sequence of one period problems experienced
         once before terminating.  cycles=0 corresponds to an infinite horizon
         model, with a sequence of one period problems repeating indefinitely.
+        With cycles=1, the time-varying parameters at index t govern the move
+        from period t to period t+1. With cycles=0 or cycles>1, those at index
+        t govern the move into period t. See get_inbound_index.
     pseudo_terminal : bool
         Indicates whether solution_terminal isn't actually part of the
         solution to the problem (as a known solution to the terminal period
@@ -1819,6 +1822,33 @@ class AgentType(Model):
         self.t_age = self.t_age + 1
         self.t_cycle = self.t_cycle + 1
         self.t_cycle[self.t_cycle == self.T_cycle] = 0
+
+    def get_inbound_index(self, t_cycle=None):
+        """
+        Index of the time-varying parameters that govern the move into the
+        period an agent is entering: the income shocks and growth that arrive,
+        the return on what was saved, survival, and Markov transitions.
+
+        In a life cycle (``cycles == 1``) the parameters at index t govern the
+        move from period t to period t + 1, so on entering period t the index
+        is t - 1; for period 0 that is -1, the last element. Otherwise
+        (``cycles == 0`` or ``cycles > 1``) the parameters at index t govern the
+        move into period t, so the index is t. These are the indices the solver
+        pairs with each period's solution (see ``_cycle_period_indices``).
+
+        Parameters
+        ----------
+        t_cycle : int or np.array, optional
+            Position in the cycle of the period being entered. Defaults to each
+            agent's ``t_cycle``.
+
+        Returns
+        -------
+        int or np.array
+            Index into the time-varying parameters.
+        """
+        t = self.t_cycle if t_cycle is None else t_cycle
+        return t - 1 if self.cycles == 1 else t
 
     def sim_one_period(self):
         """
