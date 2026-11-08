@@ -166,7 +166,13 @@ def _spline_decay(
         coeffs[-1] = np.array([intercept_limit, slope_limit, gap, 0])
 
     m = len(x_init)
-    pos = np.searchsorted(x_list, x_init)
+    # Both end knots lie on the grid, as in CubicInterp: side="right" keeps the
+    # bottom knot in bounds (#1060), and the top knot goes to the last segment
+    # (the first copy of a repeated top knot). A one-point grid has no segment.
+    pos = np.searchsorted(x_list, x_init, side="right")
+    i_top = np.searchsorted(x_list, x_list[-1])
+    if i_top > 0:
+        pos[x_init == x_list[-1]] = i_top
     y = np.zeros(m)
     dydx = np.zeros(m)
 

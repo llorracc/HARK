@@ -1171,6 +1171,13 @@ class CubicInterp(HARKinterpolator1D):
         Returns ``(m, out_bot, out_top, in_bnds, i, coeffs_in, alpha)``."""
         m = len(x)
         pos = np.searchsorted(self.x_list, x, side="right")
+        # Both end knots lie on the grid: side="right" keeps the bottom knot in
+        # bounds (#1060), and the top knot goes to the last segment (the first
+        # copy of a repeated top knot), so f and f' return y_list[-1] and
+        # dydx_list[-1] there. A one-point grid has no segment.
+        i_top = np.searchsorted(self.x_list, self.x_list[-1])
+        if i_top > 0:
+            pos[x == self.x_list[-1]] = i_top
         out_bot = pos == 0
         out_top = pos == self.n
         in_bnds = np.logical_not(np.logical_or(out_bot, out_top))

@@ -35,6 +35,7 @@ import pickle
 import unittest
 from copy import deepcopy
 
+from HARK.numba_tools import cubic_interp_fast
 from tests import HARK_PRECISION
 
 
@@ -739,6 +740,73 @@ class testsCubicHermiteInterp(unittest.TestCase):
         self.assertEqual(cube(1.5), 2.25)
         cube = CubicHermiteInterp(self.x_array_t, self.z_array_t, self.dydx_array_t)
         self.assertEqual(cube(1.5), 2.25)
+
+
+class testsCubicInterpKnots(unittest.TestCase):
+    """CubicInterp must reproduce y_list and dydx_list at both end knots, also
+    when a limiting linear function leaves a gap at the top knot."""
+
+    def setUp(self):
+        self.x_list = np.array([0.0, 1.0, 2.0])
+        self.y_list = np.array([0.0, 1.0, 2.0])
+        self.dydx_list = np.array([1.0, 1.0, 0.5])
+        # gap = 1.0 * 2.0 + 1.0 - 2.0 = 1 with slope_limit above dydx_list[-1]
+        self.limits = {"intercept_limit": 1.0, "slope_limit": 1.0}
+
+    def check_knots(self, **kwargs):
+        cube = CubicInterp(self.x_list, self.y_list, self.dydx_list, **kwargs)
+        np.testing.assert_allclose(cube(self.x_list), self.y_list)
+        np.testing.assert_allclose(cube.derivative(self.x_list), self.dydx_list)
+        vals, ders = cube.eval_with_derivative(self.x_list)
+        np.testing.assert_allclose(vals, self.y_list)
+        np.testing.assert_allclose(ders, self.dydx_list)
+
+    def test_knots_default_extrapolation(self):
+        self.check_knots()
+
+    def test_knots_with_limiting_function(self):
+        self.check_knots(**self.limits)
+
+    def test_matches_hermite_at_knots(self):
+        args = (self.x_list, self.y_list, self.dydx_list)
+        cube = CubicInterp(*args, **self.limits)
+        herm = CubicHermiteInterp(*args, **self.limits)
+        np.testing.assert_allclose(cube(self.x_list), herm(self.x_list))
+        np.testing.assert_allclose(
+            cube.derivative(self.x_list), herm.derivative(self.x_list)
+        )
+
+    def test_bottom_knot_in_bounds_without_lower_extrap(self):
+        # #1060: the bottom knot is on the grid, only points below it are NaN
+        cube = CubicInterp(self.x_list, self.y_list, self.dydx_list)
+        self.assertEqual(cube(self.x_list[0]), self.y_list[0])
+        self.assertTrue(np.isnan(cube(self.x_list[0] - 1e-6)))
+
+    def test_single_point_grid(self):
+        cube = CubicInterp([1.0], [2.0], [0.5])
+        np.testing.assert_allclose(cube(np.array([1.0, 2.0])), [2.0, 2.5])
+        np.testing.assert_allclose(cube.derivative(np.array([1.0])), [0.5])
+
+    def test_repeated_top_knot(self):
+        cube = CubicInterp([0.0, 1.0, 2.0, 2.0], [0.0, 1.0, 2.0, 2.0], [1.0] * 4)
+        np.testing.assert_allclose(cube(np.array([2.0])), [2.0])
+        np.testing.assert_allclose(cube.derivative(np.array([2.0])), [1.0])
+
+    def test_matches_cubic_interp_fast_at_knots(self):
+        args = (self.x_list, self.y_list, self.dydx_list)
+        for limits in ({}, self.limits):
+            for lower_extrap in (False, True):
+                with self.subTest(limits=bool(limits), lower_extrap=lower_extrap):
+                    cube = CubicInterp(*args, lower_extrap=lower_extrap, **limits)
+                    vals, ders = cubic_interp_fast(
+                        self.x_list,
+                        *args,
+                        limits.get("intercept_limit"),
+                        limits.get("slope_limit"),
+                        lower_extrap,
+                    )
+                    np.testing.assert_allclose(vals, cube(self.x_list))
+                    np.testing.assert_allclose(ders, cube.derivative(self.x_list))
 
 
 class testsCubicHermiteInterpSerialization(unittest.TestCase):
