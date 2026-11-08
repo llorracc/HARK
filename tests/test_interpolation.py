@@ -274,12 +274,8 @@ class TestCubicInterp(TestInterp1D):
         self.interpolant = self.interpolator_(x_grid, y_grid, dydx_grid)
 
 
-class TestCubicInterp(TestCubicInterp):
-    interpolator_ = CubicHermiteInterp
-
-
 class TestCubicHermiteInterp(TestCubicInterp):
-    _interpolator = CubicHermiteInterp
+    interpolator_ = CubicHermiteInterp
 
 
 class TestCubicHermiteLinearSegment(unittest.TestCase):
