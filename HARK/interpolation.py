@@ -2080,9 +2080,10 @@ class _Envelope1D(HARKinterpolator1D):
         i = self.argcompare(fx, axis=1)
         y = fx[np.arange(len(x)), i]
         dydx = np.zeros_like(y)
-        for j in np.unique(i):
+        for j in range(len(self.functions)):
             c = i == j
-            dydx[c] = self.functions[j].derivative(x[c])
+            if np.any(c):
+                dydx[c] = self.functions[j].derivative(x[c])
         return y, dydx
 
 
