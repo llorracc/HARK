@@ -1103,9 +1103,9 @@ class CubicInterp(HARKinterpolator1D):
     dydx_list : np.array
         List of dydx values, representing f'(x) at the points in x_list
     intercept_limit : float
-        Intercept of limiting linear function.
+        Intercept of limiting linear function. Give both limits or neither.
     slope_limit : float
-        Slope of limiting linear function.
+        Slope of limiting linear function. Give both limits or neither.
     lower_extrap : boolean
         Indicator for whether lower extrapolation is allowed.  False means
         f(x) = NaN for x < min(x_list); True means linear extrapolation.
@@ -1123,6 +1123,10 @@ class CubicInterp(HARKinterpolator1D):
         lower_extrap=False,
     ):
         self._init_cubic_grids(x_list, y_list, dydx_list)
+        if (intercept_limit is None) != (slope_limit is None):
+            raise ValueError(
+                "intercept_limit and slope_limit must be given together or not at all"
+            )
 
         # Define lower extrapolation as linear function (or just NaN)
         if lower_extrap:
@@ -1278,9 +1282,9 @@ class CubicHermiteInterp(HARKinterpolator1D):
     dydx_list : np.array
         List of dydx values, representing f'(x) at the points in x_list
     intercept_limit : float
-        Intercept of limiting linear function.
+        Intercept of limiting linear function. Give both limits or neither.
     slope_limit : float
-        Slope of limiting linear function.
+        Slope of limiting linear function. Give both limits or neither.
     lower_extrap : boolean
         Indicator for whether lower extrapolation is allowed.  False means
         f(x) = NaN for x < min(x_list); True means linear extrapolation.
@@ -1298,6 +1302,10 @@ class CubicHermiteInterp(HARKinterpolator1D):
         lower_extrap=False,
     ):
         self._init_cubic_grids(x_list, y_list, dydx_list)
+        if (intercept_limit is None) != (slope_limit is None):
+            raise ValueError(
+                "intercept_limit and slope_limit must be given together or not at all"
+            )
 
         self._chs = CubicHermiteSpline(
             self.x_list, self.y_list, self.dydx_list, extrapolate=None

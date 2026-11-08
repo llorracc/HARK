@@ -809,6 +809,48 @@ class testsCubicInterpKnots(unittest.TestCase):
                     np.testing.assert_allclose(ders, cube.derivative(self.x_list))
 
 
+class testsCubicUpperExtrapolation(unittest.TestCase):
+    """The upper extrapolation of CubicInterp toward a limiting line
+    y = b + m * x. The subclass below runs the same tests on CubicHermiteInterp."""
+
+    interp = CubicInterp
+    x_list = np.array([0.0, 1.0, 2.0])
+    y_list = np.array([0.0, 1.0, 2.0])
+    x_top = 2.0
+    y_top = 2.0
+    # (dydx at top, intercept b, slope m); gap = 2 m + b - 2, slope = m - dydx
+    decay_cases = {
+        "gap > 0, slope < 0": (1.5, 1.0, 1.0),
+        "gap < 0, slope > 0": (0.5, -1.0, 1.0),
+    }
+    offset_cases = {
+        "gap > 0, slope > 0": (0.5, 1.0, 1.0),
+        "gap < 0, slope < 0": (1.0, -1.0, 0.5),
+    }
+    all_cases = decay_cases | offset_cases
+
+    def make(self, dydx_top, b, m, **kwargs):
+        dydx_list = np.array([1.0, 1.0, dydx_top])
+        return self.interp(
+            self.x_list,
+            self.y_list,
+            dydx_list,
+            intercept_limit=b,
+            slope_limit=m,
+            **kwargs,
+        )
+
+    def test_one_limit_raises(self):
+        for b, m in ((1.0, None), (None, 1.0)):
+            with self.subTest(intercept_limit=b, slope_limit=m):
+                with self.assertRaises(ValueError):
+                    self.make(1.0, b, m)
+
+
+class testsCubicHermiteUpperExtrapolation(testsCubicUpperExtrapolation):
+    interp = CubicHermiteInterp
+
+
 class testsCubicHermiteInterpSerialization(unittest.TestCase):
     """tests that CubicHermiteInterp deepcopies and pickles without relying
     on scipy's spline internals being serializable: scipy 1.18.0 caches
