@@ -840,11 +840,26 @@ class testsCubicUpperExtrapolation(unittest.TestCase):
             **kwargs,
         )
 
+    def test_eval_with_derivative_out_of_bounds(self):
+        xs = np.array([-1.0, 0.0, 1.5, 2.0, 3.0, 50.0])
+        for label, args in self.all_cases.items():
+            with self.subTest(case=label):
+                f = self.make(*args, lower_extrap=True)
+                vals, ders = f.eval_with_derivative(xs)
+                np.testing.assert_allclose(vals, f(xs))
+                np.testing.assert_allclose(ders, f.derivative(xs))
+
     def test_one_limit_raises(self):
         for b, m in ((1.0, None), (None, 1.0)):
             with self.subTest(intercept_limit=b, slope_limit=m):
                 with self.assertRaises(ValueError):
                     self.make(1.0, b, m)
+
+    def test_integer_argument_keeps_fractional_slope(self):
+        x = np.array([1, 2, 3, 4])
+        f = self.make(0.5, None, None)
+        np.testing.assert_allclose(f.derivative(x)[2:], 0.5)
+        np.testing.assert_allclose(f.eval_with_derivative(x)[1][2:], 0.5)
 
     def test_column_input(self):
         x = np.array([[1.0], [2.0], [3.0]])
@@ -856,6 +871,45 @@ class testsCubicUpperExtrapolation(unittest.TestCase):
 
 class testsCubicHermiteUpperExtrapolation(testsCubicUpperExtrapolation):
     interp = CubicHermiteInterp
+
+
+class testsCubicInterpFast(unittest.TestCase):
+    """numba_tools.cubic_interp_fast matches CubicInterp, extrapolation included."""
+
+    x_list = testsCubicUpperExtrapolation.x_list
+    y_list = testsCubicUpperExtrapolation.y_list
+
+    def test_cubic_interp_fast_matches_cubic_interp(self):
+        xs = np.array([-np.inf, -1.0, 0.0, 0.5, 1.0, 2.0, 2.5, 10.0, np.inf])
+        cases = testsCubicUpperExtrapolation.all_cases | {
+            "default": (0.5, None, None),
+            "horizontal": (0.5, 3.0, 0.0),
+        }
+        for lower_extrap in (False, True):
+            for label, (dydx_top, b, m) in cases.items():
+                with self.subTest(case=label, lower_extrap=lower_extrap):
+                    dydx_list = np.array([1.0, 1.0, dydx_top])
+                    args = (self.x_list, self.y_list, dydx_list)
+                    f = CubicInterp(*args, b, m, lower_extrap)
+                    vals, ders = cubic_interp_fast(xs, *args, b, m, lower_extrap)
+                    np.testing.assert_allclose(vals, f(xs), rtol=1e-12)
+                    np.testing.assert_allclose(ders, f.derivative(xs), rtol=1e-12)
+
+    def test_cubic_interp_fast_argument_types(self):
+        dydx_list = np.array([1.0, 1.0, 0.5])
+        args = (self.x_list, self.y_list, dydx_list)
+        xs_int = np.array([0, 1, 3, 4])
+        target = CubicInterp(*args)
+        vals, ders = cubic_interp_fast(xs_int, *args)
+        np.testing.assert_allclose(vals, target(xs_int), rtol=1e-12)
+        np.testing.assert_allclose(ders, target.derivative(xs_int), rtol=1e-12)
+        xs = np.array([0.5, 2.0, 3.0])
+        target = CubicInterp(*args, 1.0, 1.0)
+        for b, m in ((1, 1), (1, 1.0), (np.float32(1), np.float32(1))):
+            with self.subTest(b=type(b).__name__, m=type(m).__name__):
+                vals, ders = cubic_interp_fast(xs, *args, b, m)
+                np.testing.assert_allclose(vals, target(xs), rtol=1e-12)
+                np.testing.assert_allclose(ders, target.derivative(xs), rtol=1e-12)
 
 
 class testsCubicHermiteInterpSerialization(unittest.TestCase):
