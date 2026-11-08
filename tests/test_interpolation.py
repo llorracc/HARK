@@ -282,8 +282,8 @@ class TestCubicHermiteInterp(TestCubicInterp):
 class TestCubicHermiteLinearSegment(unittest.TestCase):
     def test_set_linear_segment(self):
         """The patched segment is the chord between its knots, with one-sided
-        slopes at them; other segments are untouched; the patch survives pickling
-        and deepcopy, which rebuild the scipy spline."""
+        slopes at them. Other segments are untouched. Pickling and deepcopy of a
+        patched instance are tested in testsCubicHermiteInterpSerialization."""
         x = np.array([0.0, 1.0, 2.0, 3.0])
         y = x**2
         dydx = 2.0 * x
@@ -300,13 +300,22 @@ class TestCubicHermiteLinearSegment(unittest.TestCase):
             g.derivative(1.0 - 1e-9), 2.0, places=6
         )  # outside slopes kept
         self.assertAlmostEqual(g.derivative(2.0 + 1e-9), 4.0, places=6)
-        for h in (pickle.loads(pickle.dumps(g)), deepcopy(g)):
-            np.testing.assert_allclose(h(t), g(t), rtol=0, atol=1e-14)
-            np.testing.assert_allclose(
-                h.derivative(t), g.derivative(t), rtol=0, atol=1e-12
-            )
         with self.assertRaises(IndexError):
             g.set_linear_segment(3)
+
+    def test_state_recorded_by_earlier_versions_loads(self):
+        """A pickle from a version that recorded the patched segments in
+        _linear_segments restores the chord from coeffs all the same."""
+        x = np.array([0.0, 1.0, 2.0, 3.0])
+        g = CubicHermiteInterp(x, x**2, 2.0 * x)
+        g.set_linear_segment(1)
+        state = g.__getstate__()
+        state["_linear_segments"] = [1]
+        h = CubicHermiteInterp.__new__(CubicHermiteInterp)
+        h.__setstate__(state)
+        t = np.linspace(0.0, 3.0, 31)
+        np.testing.assert_array_equal(h(t), g(t))
+        np.testing.assert_array_equal(h.derivative(t), g.derivative(t))
 
 
 class TestLowerEnvelope(TestInterp1D):
@@ -986,8 +995,8 @@ class testsCubicHermiteInterpSerialization(unittest.TestCase):
     """tests that CubicHermiteInterp deepcopies and pickles without relying
     on scipy's spline internals being serializable: scipy 1.18.0 caches
     array-namespace module objects on spline instances (scipy issue #25489),
-    and module objects cannot be pickled or deepcopied, so the class rebuilds
-    its scipy spline from the defining data on deserialization.
+    and module objects cannot be pickled or deepcopied. The class rebuilds its
+    scipy spline from the defining data on deserialization.
     """
 
     def setUp(self):
@@ -1000,6 +1009,9 @@ class testsCubicHermiteInterpSerialization(unittest.TestCase):
         self.probe = np.linspace(0.25, 15.0, 301)
 
     def make_interpolants(self):
+        # the last one has a segment replaced by its chord (set_linear_segment)
+        patched = CubicHermiteInterp(self.x, self.y, self.dydx, lower_extrap=True)
+        patched.set_linear_segment(3)
         return [
             CubicHermiteInterp(self.x, self.y, self.dydx),
             CubicHermiteInterp(self.x, self.y, self.dydx, lower_extrap=True),
@@ -1011,6 +1023,7 @@ class testsCubicHermiteInterpSerialization(unittest.TestCase):
                 slope_limit=0.0,
                 lower_extrap=True,
             ),
+            patched,
         ]
 
     def compare(self, original, clone):
@@ -1019,6 +1032,7 @@ class testsCubicHermiteInterpSerialization(unittest.TestCase):
             original.derivative(self.probe), clone.derivative(self.probe)
         )
         np.testing.assert_array_equal(original._chs.c, clone._chs.c)
+        np.testing.assert_array_equal(original.coeffs, clone.coeffs)
         self.assertIsNot(clone.x_list, original.x_list)
 
     def test_deepcopy(self):

@@ -1374,7 +1374,6 @@ class CubicHermiteInterp(_CubicExtrapMixin, HARKinterpolator1D):
             lower_extrap, intercept_limit, slope_limit
         )
         self.coeffs = np.vstack([lower_row, np.flip(self._chs.c.T, 1), upper_row])
-        self._linear_segments = []  # segments replaced by their chord (set_linear_segment)
 
     def __getstate__(self):
         """
@@ -1393,19 +1392,15 @@ class CubicHermiteInterp(_CubicExtrapMixin, HARKinterpolator1D):
     def __setstate__(self, state):
         """
         Restore instance state, rebuilding the scipy spline that
-        ``__getstate__`` excluded from its defining data. The reconstruction
-        is deterministic, so the rebuilt spline is identical to the original.
+        ``__getstate__`` excluded from its defining data and copying back its
+        segment coefficients from ``coeffs``, which keep any segment
+        :meth:`set_linear_segment` replaced.
         """
         self.__dict__.update(state)
         self._chs = CubicHermiteSpline(
             self.x_list, self.y_list, self.dydx_list, extrapolate=None
         )
-        if not hasattr(
-            self, "_linear_segments"
-        ):  # instances pickled before the attribute existed
-            self._linear_segments = []
-        for i in list(self._linear_segments):
-            self.set_linear_segment(i)
+        self._chs.c[:] = np.flip(self.coeffs[1:-1], 1).T
 
     def set_linear_segment(self, i):
         """
@@ -1419,9 +1414,9 @@ class CubicHermiteInterp(_CubicExtrapMixin, HARKinterpolator1D):
         its own. The KinkedR consumption function needs it between its two
         zero-asset points, where end-of-period assets stay at zero, so
         consumption equals cash-on-hand with slope one, while the slopes just
-        outside are the borrowing- and saving-side MPCs. The patch is recorded in
-        the instance state, so it survives pickling and deepcopy, which rebuild
-        the scipy spline.
+        outside are the borrowing- and saving-side MPCs. The patch is written to
+        ``coeffs`` too, from which ``__setstate__`` restores it after pickling
+        or deepcopy rebuild the scipy spline.
 
         Parameters
         ----------
@@ -1437,8 +1432,6 @@ class CubicHermiteInterp(_CubicExtrapMixin, HARKinterpolator1D):
         # scipy's PPoly: coefficient k multiplies (x - x_i) ** (3 - k)
         self._chs.c[:, i] = [0.0, 0.0, slope, self.y_list[i]]
         self.coeffs[i + 1] = [self.y_list[i], slope, 0.0, 0.0]
-        if i not in self._linear_segments:
-            self._linear_segments.append(i)
 
     def out_of_bounds(self, x):
         out_bot = x < self.x_list[0]
