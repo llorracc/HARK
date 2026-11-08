@@ -77,21 +77,19 @@ def _cubic_segment_index(x_list, x):
 def _cubic_upper_row(x_top, y_top, dydx_top, intercept_limit, slope_limit):
     """
     Return the coefficients ``(b, m, gap, k)`` of the upper extrapolation
-    ``b + m*x - gap*exp(k*(x - x_top))`` toward the limiting line ``b + m*x``,
-    by the rule as it stood: ``k = (m - dydx_top) / gap`` whenever
-    ``m - dydx_top`` is nonpositive and the gap is nonzero, and the gap dropped
-    when ``m - dydx_top`` is positive. Plain arithmetic so that
-    :mod:`HARK.numba_tools` can compile it with ``njit``.
+    ``b + m*x - gap*exp(k*(x - x_top))`` toward the limiting line ``b + m*x``.
+
+    Because ``gap = b + m*x_top - y_top``, the function passes through the top
+    gridpoint for any ``k``. With ``k = (m - dydx_top) / gap`` it also matches
+    the top slope, and it decays toward the line when that ``k`` is negative.
+    Otherwise ``k = 0``: the line shifted by ``gap``, whose slope ``m`` differs
+    from ``dydx_top``. Plain arithmetic so that :mod:`HARK.numba_tools` can
+    compile it with ``njit``.
     """
     gap = slope_limit * x_top + intercept_limit - y_top
     slope = slope_limit - dydx_top
-    if (gap != 0) and (slope <= 0):
-        return intercept_limit, slope_limit, gap, slope / gap
-    elif slope > 0:
-        # fixing a problem when slope is positive
-        return intercept_limit, slope_limit, 0.0, 0.0
-    else:
-        return intercept_limit, slope_limit, gap, 0.0
+    decay = slope / gap if gap * slope < 0 else 0.0
+    return intercept_limit, slope_limit, gap, decay
 
 
 def _cubic_lower_eval(x, x_bot, lower_row):
@@ -1198,11 +1196,11 @@ class CubicInterp(_CubicExtrapMixin, HARKinterpolator1D):
     """
     An interpolating function using piecewise cubic splines.  Matches level and
     slope of 1D function at gridpoints, smoothly interpolating in between.
-    Extrapolation above highest gridpoint approaches a limiting linear function
-    if desired (linear extrapolation also enabled.)
-
-    NOTE: When no input is given for the limiting linear function, linear
-        extrapolation is used above the highest gridpoint.
+    Above the highest gridpoint the function passes through that gridpoint and
+    decays toward a limiting linear function when the decay can also match the
+    top slope. Otherwise it follows that line shifted to pass through the top
+    gridpoint. Without a limiting function it extrapolates linearly from the
+    top gridpoint.
 
     Parameters
     ----------
@@ -1325,11 +1323,11 @@ class CubicHermiteInterp(_CubicExtrapMixin, HARKinterpolator1D):
     """
     An interpolating function using piecewise cubic splines.  Matches level and
     slope of 1D function at gridpoints, smoothly interpolating in between.
-    Extrapolation above highest gridpoint approaches a limiting linear function
-    if desired (linear extrapolation also enabled.)
-
-    NOTE: When no input is given for the limiting linear function, linear
-        extrapolation is used above the highest gridpoint.
+    Above the highest gridpoint the function passes through that gridpoint and
+    decays toward a limiting linear function when the decay can also match the
+    top slope. Otherwise it follows that line shifted to pass through the top
+    gridpoint. Without a limiting function it extrapolates linearly from the
+    top gridpoint.
 
     Parameters
     ----------

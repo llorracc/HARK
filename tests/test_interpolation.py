@@ -810,8 +810,10 @@ class testsCubicInterpKnots(unittest.TestCase):
 
 
 class testsCubicUpperExtrapolation(unittest.TestCase):
-    """The upper extrapolation of CubicInterp toward a limiting line
-    y = b + m * x. The subclass below runs the same tests on CubicHermiteInterp."""
+    """Above the grid, CubicInterp passes through the top gridpoint and decays
+    toward the limiting line y = b + m * x whenever a decay can also match the
+    top slope; otherwise it follows that line shifted by the gap. The subclass
+    below runs the same tests on CubicHermiteInterp."""
 
     interp = CubicInterp
     x_list = np.array([0.0, 1.0, 2.0])
@@ -839,6 +841,47 @@ class testsCubicUpperExtrapolation(unittest.TestCase):
             slope_limit=m,
             **kwargs,
         )
+
+    def test_continuous_at_top(self):
+        for label, args in self.all_cases.items():
+            with self.subTest(case=label):
+                f = self.make(*args)
+                self.assertAlmostEqual(f(self.x_top), self.y_top, 12)
+                self.assertAlmostEqual(f(self.x_top + 1e-9), self.y_top, 6)
+
+    def test_decay_matches_slope_and_reaches_limit(self):
+        for label, (dydx_top, b, m) in self.decay_cases.items():
+            with self.subTest(case=label):
+                f = self.make(dydx_top, b, m)
+                self.assertAlmostEqual(f.derivative(self.x_top + 1e-9), dydx_top, 6)
+                self.assertAlmostEqual(f(200.0), b + m * 200.0, 9)
+
+    def test_offset_line_when_no_decay_matches(self):
+        x = np.array([2.5, 10.0, 200.0])
+        for label, (dydx_top, b, m) in self.offset_cases.items():
+            with self.subTest(case=label):
+                f = self.make(dydx_top, b, m)
+                gap = m * self.x_top + b - self.y_top
+                np.testing.assert_allclose(f(x), b + m * x - gap)
+                np.testing.assert_allclose(f.derivative(x), m)
+
+    def test_default_limits_continue_linearly(self):
+        x = np.array([2.5, 10.0, 200.0])
+        f = self.make(0.5, None, None)
+        np.testing.assert_allclose(f(x), 2.0 + 0.5 * (x - 2.0))
+        np.testing.assert_allclose(f.derivative(x), 0.5)
+
+    def test_zero_gap_or_zero_slope_gives_line(self):
+        x = np.array([3.0, 50.0])
+        cases = {
+            "gap = 0": ((0.5, 0.0, 1.0), x),
+            "slope = 0": ((0.5, 0.5, 0.5), 1.0 + 0.5 * x),
+        }
+        for label, (args, target) in cases.items():
+            with self.subTest(case=label):
+                f = self.make(*args)
+                np.testing.assert_allclose(f(x), target)
+                np.testing.assert_allclose(f.derivative(x), args[2])
 
     def test_eval_with_derivative_out_of_bounds(self):
         xs = np.array([-1.0, 0.0, 1.5, 2.0, 3.0, 50.0])
