@@ -883,6 +883,14 @@ class testsCubicUpperExtrapolation(unittest.TestCase):
                 np.testing.assert_allclose(f(x), target)
                 np.testing.assert_allclose(f.derivative(x), args[2])
 
+    def test_infinite_argument(self):
+        cases = {"default": (0.5, None, None), "decay": (1.5, 1.0, 1.0)}
+        for label, args in cases.items():
+            with self.subTest(case=label):
+                f = self.make(*args)
+                self.assertEqual(f(np.inf), np.inf)
+                self.assertTrue(np.isfinite(f.derivative(np.inf)))
+
     def test_eval_with_derivative_out_of_bounds(self):
         xs = np.array([-1.0, 0.0, 1.5, 2.0, 3.0, 50.0])
         for label, args in self.all_cases.items():
@@ -903,6 +911,25 @@ class testsCubicUpperExtrapolation(unittest.TestCase):
         f = self.make(0.5, None, None)
         np.testing.assert_allclose(f.derivative(x)[2:], 0.5)
         np.testing.assert_allclose(f.eval_with_derivative(x)[1][2:], 0.5)
+
+    def test_horizontal_limit_at_infinity(self):
+        # slope_limit = 0 with b = 3: decay when dydx_top > 0, shifted line when < 0
+        cases = {"decay": (0.5, 3.0), "shifted line": (-0.5, 2.0)}
+        for label, (dydx_top, target) in cases.items():
+            with self.subTest(case=label):
+                f = self.make(dydx_top, 3.0, 0.0)
+                vals, ders = f.eval_with_derivative(np.array([np.inf]))
+                np.testing.assert_array_equal(vals, [target])
+                np.testing.assert_array_equal(ders, [0.0])
+
+    def test_negative_infinite_argument(self):
+        dydx_list = np.ones(3)
+        f = self.interp(self.x_list, self.y_list, dydx_list, lower_extrap=True)
+        self.assertEqual(f(-np.inf), -np.inf)
+        g = self.interp(self.x_list, self.y_list, dydx_list)
+        self.assertTrue(np.isnan(g(-np.inf)))
+        flat = self.interp(self.x_list, self.y_list, [0.0, 1.0, 1.0], lower_extrap=True)
+        self.assertEqual(flat(-np.inf), self.y_list[0])
 
     def test_column_input(self):
         x = np.array([[1.0], [2.0], [3.0]])
