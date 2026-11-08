@@ -788,7 +788,7 @@ def CRRACDutilityPc_inv(uc, d, c_share, d_bar, CRRA):
     )
 
 
-class UtilityFuncCRRA(UtilityFunction):
+class UtilityFuncCRRA(UtilityFunction):  # anchor: utility-func-crra-class
     """
     A class for representing a CRRA utility function.
 
