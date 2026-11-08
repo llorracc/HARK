@@ -846,6 +846,13 @@ class testsCubicUpperExtrapolation(unittest.TestCase):
                 with self.assertRaises(ValueError):
                     self.make(1.0, b, m)
 
+    def test_column_input(self):
+        x = np.array([[1.0], [2.0], [3.0]])
+        y = np.array([[1.0], [4.0], [9.0]])
+        dydx = np.array([[2.0], [4.0], [6.0]])
+        cube = self.interp(x, y, dydx, lower_extrap=True)
+        np.testing.assert_allclose(cube(np.array([0.5, 1.5, 4.0])), [0.0, 2.25, 15.0])
+
 
 class testsCubicHermiteUpperExtrapolation(testsCubicUpperExtrapolation):
     interp = CubicHermiteInterp

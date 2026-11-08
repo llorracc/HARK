@@ -1130,7 +1130,7 @@ class CubicInterp(HARKinterpolator1D):
 
         # Define lower extrapolation as linear function (or just NaN)
         if lower_extrap:
-            lower_row = [y_list[0], dydx_list[0], 0.0, 0.0]
+            lower_row = [self.y_list[0], self.dydx_list[0], 0.0, 0.0]
         else:
             lower_row = [np.nan, np.nan, np.nan, np.nan]
 
