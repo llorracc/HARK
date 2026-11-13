@@ -1576,7 +1576,9 @@ class testAssetGridAtTheArtificialConstraint(unittest.TestCase):
         self.assertAlmostEqual(mNrm[1] - cNrm[1], agent.BoroCnstArt, places=12)
 
     def test_grid_unchanged_where_the_natural_limit_binds(self):
-        agent = IndShockConsumerType(cycles=0, BoroCnstArt=None)
+        # The atoms' natural limit: the infima's limit, where it is tighter,
+        # binds as an artificial constraint at that level does
+        agent = IndShockConsumerType(cycles=0, BoroCnstArt=None, BoroCnstInfimum=False)
         agent.solve()
         mNrm, cNrm = self.unconstrained_nodes(agent)
         self.assertAlmostEqual(
@@ -1752,13 +1754,18 @@ class testBoroCnstInfimum(unittest.TestCase):
             self.assertEqual(infima.bilt["MPCmax"], 1.0)
 
             # The atoms' limit, one step below the bound, still anchors the
-            # unconstrained function, so its endogenous gridpoints reach the bottom
+            # unconstrained function at zero consumption, and the grid starts at
+            # the bound, which binds as an artificial constraint does (#1871): the
+            # first endogenous gridpoint is the kink, where end-of-period assets
+            # are the bound
             shocks = infima.IncShkDstn[0].atoms
             anchor = (bound - shocks[1].min()) * self.G * shocks[0].min() / self.R
-            knots = infima.solution[0].cFunc.functions[0].x_list
+            cFuncUnc = infima.solution[0].cFunc.functions[0]
+            knots, values = cFuncUnc.x_list, cFuncUnc.y_list
             self.assertAlmostEqual(knots[0], anchor, places=10)
+            self.assertEqual(values[0], 0.0)
             self.assertLess(anchor, bound)
-            self.assertLess(knots[1] - knots[0], 0.05)
+            self.assertAlmostEqual(knots[1] - values[1], bound, places=10)
 
             # The infima's limit binds as an artificial constraint at that level does
             art, _ = self.make_agent(BoroCnstArt=bound, CubicBool=cubic)
