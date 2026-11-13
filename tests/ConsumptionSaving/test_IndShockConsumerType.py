@@ -1640,7 +1640,9 @@ class testKinkAttributes(unittest.TestCase):
         self.assertAlmostEqual(solution.MPCaboveKink, 0.5139080425, places=8)
 
     def test_no_kink_where_the_natural_constraint_binds(self):
-        agent = IndShockConsumerType(cycles=0, BoroCnstArt=None)
+        # The atoms' natural limit: the infima's limit, where it is tighter,
+        # binds as an artificial constraint at that level does, with a kink
+        agent = IndShockConsumerType(cycles=0, BoroCnstArt=None, BoroCnstInfimum=False)
         agent.solve()
         solution = agent.solution[0]
         self.assertTrue(np.isnan(solution.mNrmKink))
@@ -1822,3 +1824,17 @@ class testBoroCnstInfimum(unittest.TestCase):
         agent = IndShockConsumerType(**init_lifecycle)
         retired = agent.IncShkDstn[agent.T_cycle - 1]
         self.assertEqual(retired.limit["infimum"][0], 1.0)
+
+
+class testKinkAtTheInfimaLimit(unittest.TestCase):
+    """With the natural limit from the laws' infima tighter than the atoms',
+    it binds as an artificial constraint does, and the kink is recorded there."""
+
+    def test_kink_at_the_infima_limit(self):
+        agent = IndShockConsumerType(cycles=0, BoroCnstArt=None)
+        agent.solve()
+        solution = agent.solution[0]
+        self.assertTrue(np.isfinite(solution.mNrmKink))
+        self.assertAlmostEqual(
+            solution.mNrmKink - solution.cNrmKink, solution.mNrmMin, places=12
+        )

@@ -685,7 +685,8 @@ class testMarkovKink(unittest.TestCase):
         )
 
     def test_no_kink_where_the_natural_constraint_binds(self):
-        agent = MarkovConsumerType(cycles=0, BoroCnstArt=None)
+        # The atoms' natural limit, as for IndShockConsumerType
+        agent = MarkovConsumerType(cycles=0, BoroCnstArt=None, BoroCnstInfimum=False)
         agent.solve()
         for name in ("mNrmKink", "cNrmKink", "MPCaboveKink"):
             self.assertTrue(np.all(np.isnan(getattr(agent.solution[0], name))))
