@@ -817,6 +817,25 @@ class testIncShkExpectation(unittest.TestCase):
         np.testing.assert_allclose(c_q, c, rtol=0.0, atol=1e-7)
         np.testing.assert_allclose(mpc_q, mpc, rtol=0.0, atol=1e-6)
 
+    def test_rescaled_law_keeps_its_breakpoints(self):
+        # The employed transitory law, rescaled for unemployment's mean, keeps
+        # the tapered law's breakpoints, scaled, so the expectation cuts there
+        agent = IndShockConsumerType(
+            cycles=0,
+            IncShkExpectation="continuous",
+            TranShk_inf=-3.5,
+            TranShk_sup=3.5,
+            **TAPERED_TAILS,
+        )
+        perm, tran, p, x = get_income_shock_laws(agent.IncShkDstn[0])
+        law = agent.IncShkDstn[0].limit["dist"][1].limit["dist"].limit["dist"]
+        scale = (1.0 - p * x) / (1.0 - p)
+        self.assertEqual(tran.breakpoints().size, 2)
+        np.testing.assert_allclose(tran.breakpoints(), scale * law.breakpoints())
+        np.testing.assert_allclose(
+            perm.breakpoints(), np.exp(perm.mu + perm.sigma * np.array([-2.0, 2.0]))
+        )
+
     def test_errors(self):
         with self.assertRaises(ValueError):
             IndShockConsumerType(IncShkExpectation="exact").solve()
