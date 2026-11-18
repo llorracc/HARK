@@ -2243,11 +2243,11 @@ IndShockConsumerType_IncShkDstn_default = {
     "T_retire": 0,  # Period of retirement (0 --> no retirement)
     "UnempPrbRet": 0.005,  # Probability of "unemployment" while retired
     "IncUnempRet": 0.0,  # "Unemployment" benefits when retired
-    "PermShk_inf": None,  # Lower bound of log permanent shocks, in standard deviations (None --> no bound)
-    "PermShk_sup": None,  # Upper bound of log permanent shocks, in standard deviations (None --> no bound)
-    "TranShk_inf": None,  # Lower bound of log transitory shocks while employed, in standard deviations (None --> no bound)
-    "TranShk_sup": None,  # Upper bound of log transitory shocks while employed, in standard deviations (None --> no bound)
-    "PermShk_tails": "truncated",  # Tails of bounded log permanent shocks: "truncated" at each bound, "jumpless" (truncated below, the density zero at the bound), "tapered" to zero there, or "pooled" at their means
+    "PermShk_inf": None,  # Lower bound of log permanent shocks, in standard deviations (None --> the default for the tails, -3 truncated, jumpless or tapered, -2 pooled; -np.inf --> no bound)
+    "PermShk_sup": None,  # Upper bound of log permanent shocks, in standard deviations (None --> the default for the tails, 3 truncated or tapered, 2 pooled, none jumpless; np.inf --> no bound)
+    "TranShk_inf": None,  # Lower bound of log transitory shocks while employed, in standard deviations (None --> the default for the tails; -np.inf --> no bound)
+    "TranShk_sup": None,  # Upper bound of log transitory shocks while employed, in standard deviations (None --> the default for the tails; np.inf --> no bound)
+    "PermShk_tails": "truncated",  # Tails of bounded log permanent shocks: "truncated" at each bound, "jumpless" (truncated below, the density zero at the bound), "tapered" to zero at each bound, or "pooled" at their means
     "TranShk_tails": "truncated",  # Tails of bounded log transitory shocks while employed: "truncated", "jumpless", "tapered" or "pooled"
 }
 

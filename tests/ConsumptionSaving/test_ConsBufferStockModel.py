@@ -167,10 +167,10 @@ class testBufferStockRestrictions(unittest.TestCase):
 
     def test_laws_from_the_parameters(self):
         # The laws come from HARK's income constructor, so a law outside the
-        # model is reached through its parameters: no bounds at all, so that the
-        # infimum is zero
+        # model is reached through its parameters: no bounds at all (an infinite
+        # bound is none), so that the infimum is zero
         with self.assertRaises(ValueError) as caught:
-            make_agent(TranShk_inf=None, TranShk_sup=None).check_restrictions()
+            make_agent(TranShk_inf=-np.inf, TranShk_sup=np.inf).check_restrictions()
         self.assertIn("TranShkLaw's infimum must be positive", str(caught.exception))
 
     def test_laws(self):
@@ -185,7 +185,7 @@ class testBufferStockRestrictions(unittest.TestCase):
     def test_a_law_with_no_upper_bound(self):
         # Admitted, but the paper's results, which assume bounded shocks, are
         # reported as not established
-        agent = make_agent(PermShk_sup=None)
+        agent = make_agent(PermShk_sup=np.inf)
         self.assertEqual(agent.PermShkLaw.supremum[0], np.inf)
         agent.check_restrictions()
         agent.check_conditions()

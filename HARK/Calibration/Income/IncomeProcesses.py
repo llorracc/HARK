@@ -179,6 +179,36 @@ _SHOCK_TAILS = {
 }
 
 
+# The default bounds of an income shock's log, in standard deviations of the
+# underlying normal, by how its tails are treated: the truncated law, the
+# default, is cut off at +-3; the jumpless law is cut off at -3, where its
+# density is zero, and has no upper bound; the tapered law is zero at +-3, its
+# tapers starting at +-2; the pooled law pools each tail beyond +-2 at its mean.
+# A bound left None takes its default; an infinite one is no bound.
+SHOCK_BOUND_DEFAULT = {"truncated": 3.0, "jumpless": 3.0, "tapered": 3.0, "pooled": 2.0}
+
+
+def _shock_bounds(inf, sup, tails):
+    """
+    The bounds of an income shock's log, in standard deviations, for the
+    treatment of its tails: a bound left None takes SHOCK_BOUND_DEFAULT's value
+    for tails, below and above, and an infinite bound is no bound (None here).
+    The jumpless law has a lower bound only, so its upper bound is None, and a
+    finite one is refused.
+    """
+    bound = SHOCK_BOUND_DEFAULT[tails]
+    inf = -bound if inf is None else float(inf)
+    if tails == "jumpless":
+        if sup is not None and np.isfinite(sup):
+            raise ValueError(
+                "A jumpless shock is bounded below only: leave its upper bound "
+                "None, or choose other tails."
+            )
+        sup = np.inf
+    sup = bound if sup is None else float(sup)
+    return (None if np.isneginf(inf) else inf), (None if np.isposinf(sup) else sup)
+
+
 def _check_tails(tails):
     """Refuse a treatment of the tails other than those in _SHOCK_TAILS."""
     if tails not in _SHOCK_TAILS:
@@ -777,9 +807,10 @@ def construct_lognormal_income_process_unemployment(
     each tail beyond its bound at its mean, a point with the tail's probability
     that is the shock's infimum or supremum and an atom of the discretization.
     In each case a bounded shock keeps its mean at one, and PermShkStd[t] or
-    TranShkStd[t] stays the standard deviation of its log. None, the default,
-    or an infinite bound is no bound on that side; with no bounds the income
-    process is as described below.
+    TranShkStd[t] stays the standard deviation of its log. A bound left None
+    takes the default for its tails, three standard deviations (two for pooled
+    tails, and none above for jumpless ones), and an infinite bound is no
+    bound; with no bounds the income process is as described below.
 
     .. math::
         \begin{align*}
@@ -839,17 +870,19 @@ def construct_lognormal_income_process_unemployment(
         Indicator for whether the permanent-income-neutral measure should be used.
     PermShk_inf : float or None
         Lower bound of the log permanent shock, in standard deviations of the
-        underlying normal; None, the default, or -np.inf is no bound.
+        underlying normal. None, the default, takes the default bound for the
+        treatment of the tails (SHOCK_BOUND_DEFAULT: -3 for the truncated law,
+        the default, which is cut off there, and for the tapered law, whose
+        density is zero there; -2 for the pooled); -np.inf is no bound.
     PermShk_sup : float or None
         Upper bound of the log permanent shock, as PermShk_inf (np.inf is no
         bound).
     TranShk_inf : float or None
-        Lower bound of the log of the transitory shock's lognormal part, in
-        standard deviations of the underlying normal; None, the default, or
-        -np.inf is no bound.
+        Lower bound of the log of the transitory shock's lognormal part, as
+        PermShk_inf.
     TranShk_sup : float or None
         Upper bound of the log of the transitory shock's lognormal part, as
-        TranShk_inf.
+        PermShk_sup.
     PermShk_tails : str
         How the permanent shock's tails are treated at its bounds: "truncated"
         (the default), "jumpless", "tapered" or "pooled".
@@ -883,14 +916,16 @@ def construct_lognormal_income_process_unemployment(
         TranShkCount,
         neutral_measure,
     )
+    _check_tails(PermShk_tails)
+    _check_tails(TranShk_tails)
+    PermShk_inf, PermShk_sup = _shock_bounds(PermShk_inf, PermShk_sup, PermShk_tails)
+    TranShk_inf, TranShk_sup = _shock_bounds(TranShk_inf, TranShk_sup, TranShk_tails)
     bounds = {
         "PermShk_inf": PermShk_inf,
         "PermShk_sup": PermShk_sup,
         "TranShk_inf": TranShk_inf,
         "TranShk_sup": TranShk_sup,
     }
-    _check_tails(PermShk_tails)
-    _check_tails(TranShk_tails)
     if any(bound is not None for bound in bounds.values()):
         bounds.update({"PermShk_tails": PermShk_tails, "TranShk_tails": TranShk_tails})
         conditional.update({key: [b] * T_cycle for key, b in bounds.items()})
