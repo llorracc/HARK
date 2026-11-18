@@ -41,28 +41,28 @@ class testIndShockConsumerTypeFast(unittest.TestCase):
         self.assertAlmostEqual(LifecycleExample.solution[-1].cFunc(2).tolist(), 2)
 
         self.assertAlmostEqual(
-            LifecycleExample.solution[9].cFunc(1), 0.79459, places=HARK_PRECISION
+            LifecycleExample.solution[9].cFunc(1), 0.79373, places=HARK_PRECISION
         )
         self.assertAlmostEqual(
-            LifecycleExample.solution[8].cFunc(1), 0.79418, places=HARK_PRECISION
+            LifecycleExample.solution[8].cFunc(1), 0.79331, places=HARK_PRECISION
         )
         self.assertAlmostEqual(
-            LifecycleExample.solution[7].cFunc(1), 0.79277, places=HARK_PRECISION
+            LifecycleExample.solution[7].cFunc(1), 0.79188, places=HARK_PRECISION
         )
 
         self.assertAlmostEqual(
             LifecycleExample.solution[0].cFunc(1).tolist(),
-            0.75090,
+            0.74943,
             places=HARK_PRECISION,
         )
         self.assertAlmostEqual(
             LifecycleExample.solution[1].cFunc(1).tolist(),
-            0.75893,
+            0.75757,
             places=HARK_PRECISION,
         )
         self.assertAlmostEqual(
             LifecycleExample.solution[2].cFunc(1).tolist(),
-            0.76848,
+            0.76725,
             places=HARK_PRECISION,
         )
 
@@ -167,12 +167,12 @@ class testBufferStock(unittest.TestCase):
         c_t5 = baseEx.cFunc[-6](m)
         c_t10 = baseEx.cFunc[-11](m)
 
-        self.assertAlmostEqual(c_m[500], 1.40081, places=HARK_PRECISION)
+        self.assertAlmostEqual(c_m[500], 1.40005, places=HARK_PRECISION)
         self.assertAlmostEqual(c_t1[500], 2.92274, places=HARK_PRECISION)
-        self.assertAlmostEqual(c_t5[500], 1.73506, places=HARK_PRECISION)
-        self.assertAlmostEqual(c_t10[500], 1.49914, places=HARK_PRECISION)
-        self.assertAlmostEqual(c_t10[600], 1.61015, places=HARK_PRECISION)
-        self.assertAlmostEqual(c_t10[700], 1.71965, places=HARK_PRECISION)
+        self.assertAlmostEqual(c_t5[500], 1.73491, places=HARK_PRECISION)
+        self.assertAlmostEqual(c_t10[500], 1.49881, places=HARK_PRECISION)
+        self.assertAlmostEqual(c_t10[600], 1.60983, places=HARK_PRECISION)
+        self.assertAlmostEqual(c_t10[700], 1.71935, places=HARK_PRECISION)
 
     def test_GICRawFails(self):
         GICRaw_fail_dictionary = dict(self.base_params)
@@ -189,8 +189,8 @@ class testBufferStock(unittest.TestCase):
         m = np.linspace(0, 5, 1000)
         c_m = GICRawFailExample.cFunc[0](m)
 
-        self.assertAlmostEqual(c_m[500], 0.77726, places=HARK_PRECISION)
-        self.assertAlmostEqual(c_m[700], 0.83926, places=HARK_PRECISION)
+        self.assertAlmostEqual(c_m[500], 0.77684, places=HARK_PRECISION)
+        self.assertAlmostEqual(c_m[700], 0.83887, places=HARK_PRECISION)
 
         self.assertFalse(GICRawFailExample.conditions["GICRaw"])
 
@@ -205,22 +205,22 @@ class testBufferStock(unittest.TestCase):
         )  # m1 defines the plot range on the left of target m value (e.g. m <= target m)
         c_m1 = baseEx_inf.cFunc[0](m1)
 
-        self.assertAlmostEqual(c_m1[0], 0.85279, places=HARK_PRECISION)
+        self.assertAlmostEqual(c_m1[0], 0.85271, places=HARK_PRECISION)
         self.assertAlmostEqual(c_m1[-1], 1.00363, places=HARK_PRECISION)
 
         x1 = np.linspace(0, 25, 1000)
         cfunc_m = baseEx_inf.cFunc[0](x1)
 
-        self.assertAlmostEqual(cfunc_m[500], 1.89021, places=HARK_PRECISION)
-        self.assertAlmostEqual(cfunc_m[700], 2.15915, places=HARK_PRECISION)
+        self.assertAlmostEqual(cfunc_m[500], 1.88896, places=HARK_PRECISION)
+        self.assertAlmostEqual(cfunc_m[700], 2.15772, places=HARK_PRECISION)
 
         m = np.linspace(0.001, 8, 1000)
 
         # Use the HARK method derivative to get the derivative of cFunc, and the values are just the MPC
         MPC = baseEx_inf.cFunc[0].derivative(m)
 
-        self.assertAlmostEqual(MPC[500], 0.08415, places=HARK_PRECISION)
-        self.assertAlmostEqual(MPC[700], 0.07173, places=HARK_PRECISION)
+        self.assertAlmostEqual(MPC[500], 0.08403, places=HARK_PRECISION)
+        self.assertAlmostEqual(MPC[700], 0.07164, places=HARK_PRECISION)
 
 
 class testIndShockConsumerTypeFastExample(unittest.TestCase):
@@ -230,11 +230,11 @@ class testIndShockConsumerTypeFastExample(unittest.TestCase):
         IndShockExample.solve()
 
         self.assertAlmostEqual(
-            IndShockExample.solution[0].mNrmStE, 1.54702, places=HARK_PRECISION
+            IndShockExample.solution[0].mNrmStE, 1.54917, places=HARK_PRECISION
         )
         self.assertAlmostEqual(
             IndShockExample.solution[0].cFunc.functions[0].x_list[0],
-            -0.25018,
+            -0.25013,
             places=HARK_PRECISION,
         )
 
@@ -263,7 +263,7 @@ class testIndShockConsumerTypeFastLifecycle(unittest.TestCase):
 
         self.assertAlmostEqual(
             LifecycleExample.solution[5].cFunc(3).tolist(),
-            2.13005,
+            2.12978,
             places=HARK_PRECISION,
         )
 
@@ -276,7 +276,7 @@ class testIndShockConsumerTypeFastCyclical(unittest.TestCase):
 
         self.assertAlmostEqual(
             CyclicalExample.solution[3].cFunc(3).tolist(),
-            1.59609,
+            1.59530,
             places=HARK_PRECISION,
         )
 

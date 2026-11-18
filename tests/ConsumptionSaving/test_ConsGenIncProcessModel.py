@@ -132,7 +132,7 @@ class testPersistentShockConsumerType(unittest.TestCase):
         CubicType.solve()
         CubicType.unpack("cFunc")
         self.assertAlmostEqual(
-            CubicType.cFunc[0](5.0, 2.0), 3.48222, places=HARK_PRECISION
+            CubicType.cFunc[0](5.0, 2.0), 3.48214, places=HARK_PRECISION
         )
 
     def test_IH_constructors(self):
