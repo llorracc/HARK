@@ -15,6 +15,7 @@ from HARK.distributions import (
     LogNormalMeanOne,
     LogNormalPooledTailsMeanOne,
     LogNormalTaperedMeanOne,
+    LogNormalTruncatedMeanOne,
     LogNormal,
     Uniform,
     make_tauchen_ar1,
@@ -169,9 +170,30 @@ class BinaryIncShkDstn(DiscreteDistribution):
 
 # The laws a bounded income shock can follow, by how its tails are treated
 _SHOCK_TAILS = {
+    "truncated": LogNormalTruncatedMeanOne,
     "tapered": LogNormalTaperedMeanOne,
     "pooled": LogNormalPooledTailsMeanOne,
 }
+
+
+# The default bounds of an income shock's log, in standard deviations of the
+# underlying normal, by how its tails are treated: the truncated law, the
+# default, is cut off at +-3; the tapered law is zero at +-3, its tapers starting
+# at +-2; the pooled law pools each tail beyond +-2 at its mean. A bound left
+# None takes its default; an infinite one is no bound.
+SHOCK_BOUND_DEFAULT = {"truncated": 3.0, "tapered": 3.0, "pooled": 2.0}
+
+
+def _shock_bounds(inf, sup, tails):
+    """
+    The bounds of an income shock's log, in standard deviations, for the
+    treatment of its tails: a bound left None takes SHOCK_BOUND_DEFAULT's value
+    for tails, below and above, and an infinite bound is no bound (None here).
+    """
+    bound = SHOCK_BOUND_DEFAULT[tails]
+    inf = -bound if inf is None else float(inf)
+    sup = bound if sup is None else float(sup)
+    return (None if np.isneginf(inf) else inf), (None if np.isposinf(sup) else sup)
 
 
 def _check_tails(tails):
@@ -186,7 +208,7 @@ def _check_tails(tails):
         )
 
 
-def _discretize_mean_one_shock(sigma, n_approx, bot=None, top=None, tails="tapered"):
+def _discretize_mean_one_shock(sigma, n_approx, bot=None, top=None, tails="truncated"):
     """
     The law of a mean-one lognormal shock whose log has standard deviation
     sigma, and its equiprobable discretization with n_approx atoms.
@@ -195,8 +217,11 @@ def _discretize_mean_one_shock(sigma, n_approx, bot=None, top=None, tails="taper
     (None leaves the lognormal's tail on that side), the tails are treated at
     those bounds as tails says:
 
-    - "tapered", the default: each tail is tapered to zero at its bound, which
-      is the law's infimum or supremum (LogNormalTaperedMeanOne.from_sd_log);
+    - "truncated", the default: each tail is cut off at its bound, which is the
+      law's infimum or supremum, and the law rescaled to mean one
+      (LogNormalTruncatedMeanOne.from_sd_log);
+    - "tapered": each tail is tapered to zero at its bound, which is the law's
+      infimum or supremum (LogNormalTaperedMeanOne.from_sd_log);
     - "pooled": each tail beyond its bound is pooled at its mean, a point with
       the tail's probability, which is the law's infimum or supremum
       (LogNormalPooledTailsMeanOne.from_sd_log). Each point is an atom of the
@@ -218,8 +243,8 @@ def _discretize_mean_one_shock(sigma, n_approx, bot=None, top=None, tails="taper
     top : float or None, optional
         Upper bound of the log-shock, in standard deviations. The default is None.
     tails : str, optional
-        How the tails are treated at the bounds: "tapered" (the default) or
-        "pooled".
+        How the tails are treated at the bounds: "truncated" (the default),
+        "tapered" or "pooled".
 
     Returns
     -------
@@ -264,8 +289,9 @@ class LognormPermIncShk(DiscreteDistribution):
     top : float or None, optional
         Upper bound of the log-shock, as bot. The default is None.
     tails : str, optional
-        How the tails are treated at the bounds: "tapered" (the default), to
-        zero at each bound (LogNormalTaperedMeanOne), or "pooled", each tail
+        How the tails are treated at the bounds: "truncated" (the default), cut
+        off at each bound (LogNormalTruncatedMeanOne); "tapered", to zero at
+        each bound (LogNormalTaperedMeanOne); or "pooled", each tail
         beyond its bound at its mean (LogNormalPooledTailsMeanOne), which adds
         an atom at each pooled point.
 
@@ -284,7 +310,7 @@ class LognormPermIncShk(DiscreteDistribution):
         seed=0,
         bot=None,
         top=None,
-        tails="tapered",
+        tails="truncated",
     ):
         # Construct an auxiliary discretized normal
         lognormal_dstn, logn_approx = _discretize_mean_one_shock(
@@ -335,8 +361,8 @@ class MixtureTranIncShk(DiscreteDistribution):
     top : float or None, optional
         Upper bound of the lognormal part's log, as bot. The default is None.
     tails : str, optional
-        How the lognormal part's tails are treated at the bounds: "tapered"
-        (the default) or "pooled", as in LognormPermIncShk.
+        How the lognormal part's tails are treated at the bounds: "truncated"
+        (the default), "tapered" or "pooled", as in LognormPermIncShk.
 
     Returns
     -------
@@ -354,7 +380,7 @@ class MixtureTranIncShk(DiscreteDistribution):
         seed=0,
         bot=None,
         top=None,
-        tails="tapered",
+        tails="truncated",
     ):
         dstn_approx = _discretize_mean_one_shock(sigma, n_approx, bot, top, tails)[1]
 
@@ -473,8 +499,8 @@ class BufferStockIncShkDstn(DiscreteDistributionLabeled):
     TranShk_sup : float or None, optional
         Upper bound of the log transitory shock's lognormal part, as TranShk_inf.
     PermShk_tails : str, optional
-        How the permanent shock's tails are treated at its bounds: "tapered"
-        (the default) or "pooled". See LognormPermIncShk.
+        How the permanent shock's tails are treated at its bounds: "truncated"
+        (the default), "tapered" or "pooled". See LognormPermIncShk.
     TranShk_tails : str, optional
         How the tails of the transitory shock's lognormal part are treated at
         its bounds, as PermShk_tails.
@@ -500,8 +526,8 @@ class BufferStockIncShkDstn(DiscreteDistributionLabeled):
         PermShk_sup=None,
         TranShk_inf=None,
         TranShk_sup=None,
-        PermShk_tails="tapered",
-        TranShk_tails="tapered",
+        PermShk_tails="truncated",
+        TranShk_tails="truncated",
     ):
         perm_dstn = LognormPermIncShk(
             sigma=sigma_Perm,
@@ -686,8 +712,8 @@ def construct_lognormal_income_process_unemployment(
     PermShk_sup=None,
     TranShk_inf=None,
     TranShk_sup=None,
-    PermShk_tails="tapered",
-    TranShk_tails="tapered",
+    PermShk_tails="truncated",
+    TranShk_tails="truncated",
 ):
     r"""
     Generates a list of discrete approximations to the income process for each
@@ -770,22 +796,25 @@ def construct_lognormal_income_process_unemployment(
         Indicator for whether the permanent-income-neutral measure should be used.
     PermShk_inf : float or None
         Lower bound of the log permanent shock, in standard deviations of the
-        underlying normal; None, the default, is no bound.
+        underlying normal. None, the default, takes the default bound for the
+        treatment of the tails (SHOCK_BOUND_DEFAULT: -3 for the truncated law,
+        the default, which is cut off there, and for the tapered law, whose
+        density is zero there; -2 for the pooled); -np.inf is no bound.
     PermShk_sup : float or None
-        Upper bound of the log permanent shock, as PermShk_inf.
+        Upper bound of the log permanent shock, as PermShk_inf (np.inf is no
+        bound).
     TranShk_inf : float or None
-        Lower bound of the log of the transitory shock's lognormal part, in
-        standard deviations of the underlying normal; None, the default, is no
-        bound.
+        Lower bound of the log of the transitory shock's lognormal part, as
+        PermShk_inf.
     TranShk_sup : float or None
         Upper bound of the log of the transitory shock's lognormal part, as
-        TranShk_inf.
+        PermShk_sup.
     PermShk_tails : str
-        How the permanent shock's tails are treated at its bounds: "tapered"
-        (the default) or "pooled".
+        How the permanent shock's tails are treated at its bounds: "truncated"
+        (the default), "tapered" or "pooled".
     TranShk_tails : str
         How the tails of the transitory shock's lognormal part are treated at
-        its bounds: "tapered" (the default) or "pooled".
+        its bounds: "truncated" (the default), "tapered" or "pooled".
 
     Returns
     -------
@@ -806,14 +835,16 @@ def construct_lognormal_income_process_unemployment(
         TranShkCount,
         neutral_measure,
     )
+    _check_tails(PermShk_tails)
+    _check_tails(TranShk_tails)
+    PermShk_inf, PermShk_sup = _shock_bounds(PermShk_inf, PermShk_sup, PermShk_tails)
+    TranShk_inf, TranShk_sup = _shock_bounds(TranShk_inf, TranShk_sup, TranShk_tails)
     bounds = {
         "PermShk_inf": PermShk_inf,
         "PermShk_sup": PermShk_sup,
         "TranShk_inf": TranShk_inf,
         "TranShk_sup": TranShk_sup,
     }
-    _check_tails(PermShk_tails)
-    _check_tails(TranShk_tails)
     if any(bound is not None for bound in bounds.values()):
         bounds.update({"PermShk_tails": PermShk_tails, "TranShk_tails": TranShk_tails})
         conditional.update({key: [b] * T_cycle for key, b in bounds.items()})

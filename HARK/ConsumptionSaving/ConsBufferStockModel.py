@@ -88,7 +88,7 @@ from HARK.distributions import (
     DiscreteDistribution,
     DiscreteDistributionLabeled,
     IndexDistribution,
-    MeanOneTruncatedLogNormal,
+    LogNormalTruncatedMeanOne,
     add_discrete_outcome_constant_mean,
     combine_indep_dstns,
 )
@@ -143,13 +143,28 @@ def _law_bounds(law):
 
 
 def _law_expect(law, func):
-    """The expectation of func under a shock law, by quadrature of its quantile function."""
+    """
+    The expectation of func under a shock law, by quadrature of its quantile
+    function, split where the law is not smooth: at the probabilities of its
+    breakpoints(), where its quantile function has a kink or a jump, as the
+    power-tapered lognormal's does where each taper starts.
+    """
     if isinstance(law, DiscreteDistribution):
         return float(np.dot(law.pmv, func(np.ravel(law.atoms))))
     if isinstance(law, PointMassAtInfimum):
         return law.expect(func)
+    points = None
+    if hasattr(law, "breakpoints"):
+        qs = np.ravel(law.cdf(np.asarray(law.breakpoints(), dtype=float)))
+        points = [float(q) for q in qs if 0.0 < q < 1.0] or None
     value, _ = quad(
-        lambda q: func(law.ppf(q)), 0.0, 1.0, limit=200, epsabs=1e-14, epsrel=1e-12
+        lambda q: func(law.ppf(q)),
+        0.0,
+        1.0,
+        limit=200,
+        epsabs=1e-14,
+        epsrel=1e-12,
+        points=points,
     )
     return float(value)
 
@@ -182,7 +197,7 @@ class PointMassAtInfimum:
     ----------
     base : distribution
         A continuous law with mean one, a positive infimum below one and a
-        finite supremum, such as a MeanOneTruncatedLogNormal.
+        finite supremum, such as a LogNormalTruncatedMeanOne.
     prb : float
         The probability of the lowest value, strictly between zero and one.
 
@@ -264,9 +279,10 @@ def make_PermShkLaw(
     PermShkStd, PermShk_inf, PermShk_sup, PermShkMinPrb, UnempPrb, IncUnemp, RNG
 ):
     """
-    The default law of the permanent shock: a mean-one lognormal truncated at
-    PermShk_inf and PermShk_sup standard deviations of its log, whose log has
-    standard deviation PermShkStd after the truncation.
+    The default law of the permanent shock: HARK's default for a bounded shock,
+    a mean-one lognormal truncated at PermShk_inf and PermShk_sup standard
+    deviations of its log (LogNormalTruncatedMeanOne), whose log has standard
+    deviation PermShkStd after the truncation.
 
     With positive income in the zero-income event the law is that lognormal
     with a point mass at its infimum (:class:`PointMassAtInfimum`), so that the
@@ -277,7 +293,7 @@ def make_PermShkLaw(
     at the bottom sits on the bound. PermShkMinPrb of zero gives the lognormal
     itself, with which the borrowing limit can be reached (item:NoPointMass).
     """
-    law = MeanOneTruncatedLogNormal.from_sd_log(
+    law = LogNormalTruncatedMeanOne.from_sd_log(
         PermShkStd, bot=PermShk_inf, top=PermShk_sup, seed=RNG.integers(0, 2**31 - 1)
     )
     positive_minimum = UnempPrb > 0.0 and IncUnemp > 0.0
@@ -294,7 +310,7 @@ def make_TranShkLaw(TranShkStd, TranShk_inf, TranShk_sup, RNG):
     lognormal truncated at TranShk_inf and TranShk_sup standard deviations of its
     log, whose log has standard deviation TranShkStd after the truncation.
     """
-    return MeanOneTruncatedLogNormal.from_sd_log(
+    return LogNormalTruncatedMeanOne.from_sd_log(
         TranShkStd, bot=TranShk_inf, top=TranShk_sup, seed=RNG.integers(0, 2**31 - 1)
     )
 
@@ -1472,7 +1488,8 @@ class BufferStockConsumerType(IndShockConsumerType):
         shock's lowest value must be below Rfree.
     PermShkLaw, TranShkLaw : distribution
         The laws of the permanent shock and of the transitory draw. By default
-        mean-one truncated lognormals built from PermShkStd, PermShk_inf,
+        mean-one truncated lognormals (LogNormalTruncatedMeanOne), HARK's
+        default for bounded shocks, built from PermShkStd, PermShk_inf,
         PermShk_sup and their transitory counterparts; with IncUnemp above zero
         the permanent shock's default law is that lognormal with a point mass
         at its infimum (:class:`PointMassAtInfimum`), unless PermShkMinPrb is

@@ -21,7 +21,12 @@ from HARK.ConsumptionSaving.ConsIndShockModel import (
     IndShockConsumerType,
     init_lifecycle,
 )
-from HARK.distributions import LogNormalPooledTailsMeanOne, LogNormalTaperedMeanOne
+from HARK.distributions import (
+    LogNormalMeanOne,
+    LogNormalPooledTailsMeanOne,
+    LogNormalTaperedMeanOne,
+    LogNormalTruncatedMeanOne,
+)
 
 BOUNDS = {
     "PermShk_inf": -3.0,
@@ -63,7 +68,7 @@ class testIncomeShockTails(unittest.TestCase):
         self.assertEqual(agent.IncShkDstn.conditional.keys() & keys, set())
 
     def test_permanent_shock_tapered(self):
-        shock = LognormPermIncShk(0.1, 7, bot=-3.0, top=3.0)
+        shock = LognormPermIncShk(0.1, 7, bot=-3.0, top=3.0, tails="tapered")
         law = shock.limit["dist"]
         self.assertIsInstance(law, LogNormalTaperedMeanOne)
         self.assertAlmostEqual(law._law.variance() * law.sigma**2, 0.01, places=15)
@@ -145,7 +150,7 @@ class testIncomeShockTails(unittest.TestCase):
         with self.assertRaises(ValueError):
             LognormPermIncShk(0.1, 7, bot=-3.0, top=3.0, tails="censored")
         with self.assertRaises(ValueError):
-            MixtureTranIncShk(0.1, 0.05, 0.3, 7, tails="truncated")
+            MixtureTranIncShk(0.1, 0.05, 0.3, 7, tails="censored")
         with self.assertRaises(ValueError):
             construct_lognormal_income_process_unemployment(
                 T_cycle=1,
@@ -193,3 +198,83 @@ class testIncomeShockTails(unittest.TestCase):
                     self.assertTrue(np.all(perm <= bounds.supremum[0] * (1 + 1e-15)))
                 else:
                     np.testing.assert_array_equal(perm, plain.IncShkDstn[t].atoms[0])
+
+
+def income_laws(**kwds):
+    """The permanent and employed transitory laws the income constructor records."""
+    dstn = construct_lognormal_income_process_unemployment(
+        T_cycle=1,
+        PermShkStd=[0.1],
+        PermShkCount=7,
+        TranShkStd=[0.1],
+        TranShkCount=7,
+        T_retire=0,
+        UnempPrb=0.05,
+        IncUnemp=0.3,
+        UnempPrbRet=0.005,
+        IncUnempRet=0.0,
+        RNG=np.random.default_rng(0),
+        **kwds,
+    )[0]
+    perm, tran = dstn.limit["dist"]
+    return perm.limit["dist"], tran.limit["dist"].limit["dist"]
+
+
+class testDefaultBounds(unittest.TestCase):
+    """
+    HARK's default income shocks are bounded: a bound left None is the default
+    for the treatment of the tails, SHOCK_BOUND_DEFAULT. A truncated shock, the
+    default, is cut off at three standard deviations; a tapered one is zero at
+    three, tapered from two; a pooled one is pooled beyond two. An infinite
+    bound is no bound.
+    """
+
+    def test_default_is_truncated_at_three(self):
+        for law in income_laws():
+            self.assertIsInstance(law, LogNormalTruncatedMeanOne)
+            self.assertEqual((law.bot, law.top), (-3.0, 3.0))
+        # the truncation points are the laws' infimum and supremum, which the
+        # discretization records
+        dstn = construct_lognormal_income_process_unemployment(
+            T_cycle=1,
+            PermShkStd=[0.1],
+            PermShkCount=7,
+            TranShkStd=[0.1],
+            TranShkCount=7,
+            T_retire=0,
+            UnempPrb=0.05,
+            IncUnemp=0.3,
+            UnempPrbRet=0.005,
+            IncUnempRet=0.0,
+            RNG=np.random.default_rng(0),
+        )[0]
+        perm, tran = income_laws()
+        self.assertEqual(dstn.limit["infimum"][0], perm.infimum[0])
+        self.assertEqual(dstn.limit["supremum"][0], perm.supremum[0])
+        self.assertEqual(dstn.limit["infimum"][1], 0.3)  # the unemployment benefit
+
+    def test_tapered_from_two_to_three(self):
+        for law in income_laws(PermShk_tails="tapered", TranShk_tails="tapered"):
+            self.assertIsInstance(law, LogNormalTaperedMeanOne)
+            self.assertEqual((law.bot, law.top), (-3.0, 3.0))
+            self.assertEqual((law._law.c_lo, law._law.c_hi), (-2.0, 2.0))
+
+    def test_pooled_default_beyond_two(self):
+        perm, tran = income_laws(PermShk_tails="pooled")
+        self.assertIsInstance(perm, LogNormalPooledTailsMeanOne)
+        self.assertEqual((perm.bot, perm.top), (-2.0, 2.0))
+        self.assertIsInstance(tran, LogNormalTruncatedMeanOne)
+        self.assertEqual((tran.bot, tran.top), (-3.0, 3.0))
+
+    def test_given_bounds_are_kept_and_infinite_ones_are_none(self):
+        perm, tran = income_laws(
+            PermShk_inf=-np.inf, PermShk_sup=np.inf, TranShk_inf=-2.5
+        )
+        self.assertIs(type(perm), LogNormalMeanOne)
+        self.assertEqual((tran.bot, tran.top), (-2.5, 3.0))
+
+    def test_the_default_agent(self):
+        agent = IndShockConsumerType(cycles=0)
+        law = agent.IncShkDstn[0].limit["dist"][0].limit["dist"]
+        self.assertIsInstance(law, LogNormalTruncatedMeanOne)
+        self.assertEqual((law.bot, law.top), (-3.0, 3.0))
