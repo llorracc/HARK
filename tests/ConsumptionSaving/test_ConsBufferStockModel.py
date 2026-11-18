@@ -11,6 +11,8 @@ from HARK.ConsumptionSaving.ConsBufferStockModel import (
     PointMassAtInfimum,
     calc_buffer_stock_conditions,
     paper_url,
+    solve_one_period_ConsBufferStock,
+    solve_one_period_ConsBufferStock_continuous,
 )
 from HARK import _log
 from HARK.ConsumptionSaving.ConsIndShockModel import IndShockConsumerType
@@ -1011,3 +1013,25 @@ class testBufferStockArtificialConstraint(unittest.TestCase):
             agent._respond_to_conditions()
         with self.assertRaises(ValueError):
             make_agent(on_no_solution="raise", **params).solve()
+
+
+class testBufferStockContinuousExpectation(unittest.TestCase):
+    """IncShkExpectation "continuous": the class's solver, with IndShock's
+    expectation against the laws in place of their atoms."""
+
+    def test_the_solver(self):
+        agent = make_agent(IncShkExpectation="continuous")
+        self.assertIs(
+            agent.solve_one_period, solve_one_period_ConsBufferStock_continuous
+        )
+        self.assertIn("PermShkQuadCount", agent.time_inv)
+        agent.assign_parameters(IncShkExpectation="atoms")
+        self.assertIs(agent.solve_one_period, solve_one_period_ConsBufferStock)
+
+    def test_a_law_with_an_atom_is_refused(self):
+        # With positive income in the event the default permanent law has a
+        # point mass at its infimum
+        agent = make_agent(IncShkExpectation="continuous", IncUnemp=0.05)
+        with self.assertRaises(ValueError) as caught:
+            agent.solve()
+        self.assertIn("needs continuous laws", str(caught.exception))
