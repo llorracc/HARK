@@ -1966,10 +1966,16 @@ def _solve_one_period_ConsIndShock(
     DiscFacEff = DiscFac * LivPrb  # "effective" discount factor
 
     # Calculate the probability that we get the worst possible income draw. Under
-    # continuous laws the worst income has no mass. Over the atoms, it is the
-    # probability of the lowest, which sets the MPC at the atoms' own limit,
-    # where the unconstrained consumption function is anchored
-    WorstIncPrb = 0.0 if continuous else calc_worst_inc_prob(IncShkDstn)
+    # continuous laws the worst income has no mass, but for an unemployment event
+    # that pays nothing: its income is zero whatever the permanent shock, with
+    # the event's probability. Over the atoms, it is the probability of the
+    # lowest, which sets the MPC at the atoms' own limit, where the
+    # unconstrained consumption function is anchored
+    if continuous:
+        _, _, UnempPrb, IncUnemp = get_income_shock_laws(IncShkDstn)
+        WorstIncPrb = UnempPrb if IncUnemp == 0.0 else 0.0
+    else:
+        WorstIncPrb = calc_worst_inc_prob(IncShkDstn)
     Ex_IncNext = expected(lambda x: x["PermShk"] * x["TranShk"], IncShkDstn)
     hNrmNow = calc_human_wealth(solution_next.hNrm, PermGroFac, Rfree, Ex_IncNext)
 

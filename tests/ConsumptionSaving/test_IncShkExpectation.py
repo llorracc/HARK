@@ -272,6 +272,28 @@ class testIncShkExpectation(unittest.TestCase):
         agent = deepcopy(self.agent)
         self.assertIs(agent.solve_one_period, solve_one_period_ConsIndShock_continuous)
 
+    def test_worst_income_with_no_benefit(self):
+        # With no unemployment benefit, income in that event is zero whatever the
+        # permanent shock, so the worst income has the event's probability and the
+        # MPC at the natural limit is below one, as over the atoms
+        for expectation in ("atoms", "continuous"):
+            with self.subTest(expectation=expectation):
+                agent = IndShockConsumerType(
+                    cycles=1,
+                    IncUnemp=0.0,
+                    BoroCnstArt=None,
+                    IncShkExpectation=expectation,
+                    **BOUNDS,
+                )
+                agent.solve()
+                solution = agent.solution[0]
+                PatFac = (agent.Rfree[0] * agent.DiscFac * agent.LivPrb[0]) ** (
+                    1.0 / agent.CRRA
+                ) / agent.Rfree[0]
+                MPCmax = 1.0 / (1.0 + agent.UnempPrb ** (1.0 / agent.CRRA) * PatFac)
+                self.assertEqual(solution.mNrmMin, 0.0)
+                self.assertAlmostEqual(solution.MPCmax, MPCmax, places=12)
+
     def test_natural_constraint(self):
         # No artificial constraint: the natural one, from the laws' infima, binds,
         # and consumption falls to zero at it with no kink
