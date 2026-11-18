@@ -3821,6 +3821,13 @@ class IndShockConsumerType(PerfForesightConsumerType):
         "model": "ConsIndShock.yaml",
         "track_vars": ["aNrm", "cNrm", "mNrm", "pLvl"],
     }
+    # The one period solver for each IncShkExpectation. A subclass whose solver
+    # wraps IndShock's names its own pair; one whose solver is not among them
+    # takes the expectation over the atoms only.
+    expectation_solvers = {
+        "atoms": solve_one_period_ConsIndShock,
+        "continuous": solve_one_period_ConsIndShock_continuous,
+    }
 
     time_inv_ = PerfForesightConsumerType.time_inv_ + [
         "vFuncBool",
@@ -4094,11 +4101,12 @@ class IndShockConsumerType(PerfForesightConsumerType):
 
     def use_IncShkExpectation(self):
         """
-        Point solve_one_period at IndShock's solver for IncShkExpectation:
+        Point solve_one_period at the solver for IncShkExpectation in the
+        class's expectation_solvers: for IndShockConsumerType,
         solve_one_period_ConsIndShock for "atoms", and
         solve_one_period_ConsIndShock_continuous for "continuous", which then
         also reads PermShkQuadCount and TranShkQuadCount. A type whose solver is
-        another one takes the expectation over the atoms, and "continuous"
+        not among them takes the expectation over the atoms, and "continuous"
         raises.
 
         It runs when the agent is made, when assign_parameters sets the option,
@@ -4113,11 +4121,8 @@ class IndShockConsumerType(PerfForesightConsumerType):
                 'IncShkExpectation must be "atoms" or "continuous", not '
                 f"{expectation!r}."
             )
-        indshock = (
-            solve_one_period_ConsIndShock,
-            solve_one_period_ConsIndShock_continuous,
-        )
-        if self.solve_one_period not in indshock:
+        solvers = type(self).expectation_solvers
+        if self.solve_one_period not in solvers.values():
             if expectation == "continuous":
                 raise NotImplementedError(
                     f"{type(self).__name__}'s solver takes the expectation over the "
@@ -4125,13 +4130,11 @@ class IndShockConsumerType(PerfForesightConsumerType):
                     "an option of IndShockConsumerType's solver."
                 )
             return
+        self.solve_one_period = solvers[expectation]
         if expectation == "continuous":
-            self.solve_one_period = solve_one_period_ConsIndShock_continuous
             for name in ("PermShkQuadCount", "TranShkQuadCount"):
                 if name not in self.time_inv:
                     self.time_inv.append(name)
-        else:
-            self.solve_one_period = solve_one_period_ConsIndShock
 
     def describe_parameters(self):
         """
