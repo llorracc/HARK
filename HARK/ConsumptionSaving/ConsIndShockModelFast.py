@@ -23,6 +23,7 @@ from quantecon.optimize import newton_secant
 
 from HARK import make_one_period_oo_solver
 from HARK.ConsumptionSaving.ConsIndShockModel import (
+    check_cubic_pairing,
     ConsumerSolution,
     IndShockConsumerType,
     find_kink,
@@ -1067,6 +1068,7 @@ class ConsIndShockSolverFast(ConsIndShockSolverBasicFast):
             The solution to the one period problem.
         """
 
+        check_cubic_pairing(self.CubicBool)
         if self.CubicBool:
             (
                 self.cNrm,
