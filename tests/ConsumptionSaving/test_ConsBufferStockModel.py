@@ -1012,6 +1012,19 @@ class testBufferStockContinuousExpectation(unittest.TestCase):
         agent.assign_parameters(IncShkExpectation="atoms")
         self.assertIs(agent.solve_one_period, solve_one_period_ConsBufferStock)
 
+    def test_the_cubic_keeps_its_linear_first_segment(self):
+        # On the continuous path the cubic's first segment, from the limit to the
+        # first gridpoint, is the chord between them; the line the class extends
+        # the function along above the grid keeps it
+        agent = make_agent(IncShkExpectation="continuous", CubicBool=True, cycles=3)
+        agent.solve()
+        unconstrained = agent.solution[0].cFunc.functions[0]
+        x, y = unconstrained.x_list, unconstrained.y_list
+        m = np.linspace(x[0], x[1], 11)[1:-1]
+        np.testing.assert_allclose(
+            unconstrained.derivative(m), (y[1] - y[0]) / (x[1] - x[0]), rtol=1e-10
+        )
+
     def test_a_law_with_an_atom_is_refused(self):
         # With positive income in the event the default permanent law has a
         # point mass at its infimum
