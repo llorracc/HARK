@@ -574,6 +574,9 @@ def _extend_along_a_line(solution, slope, CRRA, CubicBool):
             y[-1] - slope * x[-1],
             slope,
         )
+        if getattr(solution, "mNrmLinearEnd", None) is not None:
+            # the continuous expectation's linear first segment, from the limit
+            unconstrained.set_linear_segment(0)
     else:
         # A point on the line makes the last segment's slope the limiting MPC
         unconstrained = LinearInterp(
