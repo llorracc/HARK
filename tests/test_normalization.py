@@ -23,6 +23,8 @@ Covers:
 import numpy as np
 import pytest
 
+from HARK.core import AgentType
+
 from HARK.ConsumptionSaving.ConsIndShockModel import (
     IndShockConsumerType,
     init_lifecycle,
@@ -221,6 +223,34 @@ def test_lifecycle_targets_vary_with_age():
         assert np.isclose(increments[k], g_log + e_log_psi, atol=1e-12), k
 
 
+def test_cyclical_target_follows_the_draws():
+    """In a repeating cycle the target uses the growth the draws used.
+
+    ``get_shocks`` reads the income process at ``get_inbound_index(t_cycle)``:
+    ``t_cycle - 1`` in a life cycle, ``t_cycle`` in a repeating cycle. With growth
+    that changes within the cycle, a target that walked the life cycle's indices
+    would take another period's growth: here a factor of two over five periods,
+    against shocks with a standard deviation of 0.01.
+    """
+    T = 3
+    params = dict(
+        cycles=0,
+        T_cycle=T,
+        PermGroFac=[1.0, 2.0, 1.0],
+        PermShkStd=[0.01] * T,
+        TranShkStd=[0.01] * T,
+        LivPrb=[1.0] * T,
+        Rfree=[1.03] * T,
+        T_age=None,
+    )
+    plain = _agent(IndShockConsumerType, agent_count=2000, t_sim=5, params=params)
+    assert np.all(plain.t_age == 5)  # no deaths: one cohort, five periods old
+    sample_mean = float(np.mean(np.log(plain.state_now["pLvl"])))
+    # the last period's normalization reads t_age == 4, before it advances
+    target = NormalizedIndShock(**params)._analytical_log_pLvl_moments(4)[0]
+    assert abs(sample_mean - target) < 0.01, (sample_mean, target)
+
+
 def test_mean_only_mode_shifts_but_does_not_rescale():
     agent = _agent(
         NormalizedIndShock,
@@ -263,7 +293,11 @@ def test_warns_when_sim_one_period_bypasses_the_hook():
 class _MarkovStub(PermanentIncomeNormalizationMixin):
     """Bare stub carrying the attributes the analytic machinery reads."""
 
+    # the index the draws use, as an AgentType gives it
+    get_inbound_index = AgentType.get_inbound_index
+
     def __init__(self):
+        self.cycles = 0
         self.PermGroFac = [np.array([1.02, 0.99])]
         self.MrkvArray = [np.array([[0.9, 0.1], [0.5, 0.5]])]
 

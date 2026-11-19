@@ -53,8 +53,9 @@ in each simulated period, so life-cycle calibrations with age-varying
 ``PermGroFac`` and ``PermShkDstn`` (HARK ships several) get the right
 profile rather than period 0's parameters extrapolated. The indexing
 mirrors ``get_shocks``: an agent at ``t_cycle == j`` draws from index
-``(j - 1) % T_cycle``, except in its birth period, which is special-cased to
-index 0.
+``get_inbound_index(j)``, which is ``(j - 1) % T_cycle`` in a life cycle and
+``j`` in a repeating cycle, except in its birth period, which is special-cased
+to index 0.
 
 Design notes
 ------------
@@ -481,14 +482,19 @@ class PermanentIncomeNormalizationMixin(_NormalizationIndexMixin):
         ``sim_one_period`` advances ``t_age``, so an agent reading
         ``t_age == k`` has already been through ``k + 1`` transitions, each
         one multiplying ``pLvl`` by ``psi * PermGroFac``. The sequence
-        therefore has ``k + 1`` entries. Period ``j`` uses index
-        ``(j - 1) % T_cycle``, except the birth period, which
-        ``get_shocks`` special-cases to index 0. Newborns are NOT exempt
+        therefore has ``k + 1`` entries. Period ``j``, at ``t_cycle == j %
+        T_cycle``, uses the index ``get_shocks`` uses,
+        ``get_inbound_index(t_cycle)``: ``(j - 1) % T_cycle`` in a life cycle,
+        ``j % T_cycle`` in a repeating cycle. The birth period is the
+        exception, which ``get_shocks`` special-cases to index 0. Newborns are NOT exempt
         from the permanent shock: ``get_shocks`` redraws a random ``PermShk``
         for them and pins only ``TranShk``.
         """
         T_cycle = self._T_cycle
-        return [0] + [(j - 1) % T_cycle for j in range(1, int(age_k) + 1)]
+        return [0] + [
+            int(self.get_inbound_index(j % T_cycle)) % T_cycle
+            for j in range(1, int(age_k) + 1)
+        ]
 
     def _analytical_log_pLvl_moments(self, age_k):
         """Analytical ``(mu, sigma)`` of ``log(pLvl)`` at age ``age_k``.
