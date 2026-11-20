@@ -4,7 +4,10 @@ from copy import deepcopy
 
 import numpy as np
 
-from HARK.ConsumptionSaving.ConsIndShockModel import KinkedRconsumerType
+from HARK.ConsumptionSaving.ConsIndShockModel import (
+    IndShockConsumerType,
+    KinkedRconsumerType,
+)
 from tests import HARK_PRECISION
 
 
@@ -45,11 +48,13 @@ class testKinkedRConsumerType(unittest.TestCase):
         vFunc = CubicExample.solution[0].vFunc
 
         m = 3.0
-        self.assertAlmostEqual(cFunc(m), 1.25551, places=HARK_PRECISION)
+        # 1.25551 until the natural constraint came from the shock laws' infima
+        self.assertAlmostEqual(cFunc(m), 1.25420, places=HARK_PRECISION)
         # -15.3711 until the kink segment was fixed to lie on the 45-degree line (its
-        # dip below cash-on-hand reached the fixed point), then -15.37090; -15.37597
-        # since HARK's default income shocks are the power-tapered lognormal.
-        self.assertAlmostEqual(vFunc(m), -15.38487, places=HARK_PRECISION)
+        # dip below cash-on-hand reached the fixed point), then -15.37090; -15.38487
+        # since HARK's default income shocks are the truncated lognormal;
+        # -15.38712 since the natural constraint comes from the laws' infima.
+        self.assertAlmostEqual(vFunc(m), -15.39614, places=HARK_PRECISION)
 
     def test_cubic_kink_segment_is_the_45_degree_line(self):
         """Between the two zero-asset points the unconstrained consumption function is c = m
@@ -87,3 +92,38 @@ class testKinkedRConsumerType(unittest.TestCase):
         BoopType = KinkedRconsumerType()
         BasicType = KinkedRconsumerType(Rboro=BoopType.Rsave)
         BasicType.solve()
+
+
+class testKinkedRNaturalLimitFromTheInfima(unittest.TestCase):
+    """
+    KinkedR's natural borrowing constraint comes from the infima of the true
+    shock distributions, at the borrowing rate, as IndShock's does, and binds on
+    the atoms as an artificial constraint does.
+    """
+
+    def test_the_limit_at_the_borrowing_rate(self):
+        agent = KinkedRconsumerType(cycles=0, BoroCnstArt=None)
+        agent.solve()
+        perm_inf, tran_inf = np.ravel(agent.IncShkDstn[0].limit["infimum"])
+        kappa = agent.PermGroFac[0] * perm_inf / agent.Rboro
+        self.assertAlmostEqual(
+            agent.solution[0].mNrmMin, -tran_inf * kappa / (1.0 - kappa), places=10
+        )
+        self.assertEqual(agent.solution[0].MPCmax, 1.0)
+        # The atoms' own limit allows more borrowing than a draw from the true
+        # laws could repay
+        perm_min, tran_min = np.min(agent.IncShkDstn[0].atoms, axis=1)
+        kappa = agent.PermGroFac[0] * perm_min / agent.Rboro
+        atoms_limit = -tran_min * kappa / (1.0 - kappa)
+        self.assertLess(atoms_limit, agent.solution[0].mNrmMin - 0.2)
+
+    def test_equal_rates_take_the_indshock_solver(self):
+        m = np.linspace(0.0, 10.0, 201)
+        kinky = KinkedRconsumerType(cycles=1, Rboro=1.03, Rsave=1.03, BoroCnstArt=None)
+        kinky.solve()
+        plain = IndShockConsumerType(cycles=1, Rfree=[1.03], BoroCnstArt=None)
+        plain.solve()
+        self.assertEqual(kinky.solution[0].mNrmMin, plain.solution[0].mNrmMin)
+        np.testing.assert_allclose(
+            kinky.solution[0].cFunc(m), plain.solution[0].cFunc(m), rtol=1e-12
+        )

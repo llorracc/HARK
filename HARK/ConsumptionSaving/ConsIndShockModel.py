@@ -1254,17 +1254,18 @@ def solve_one_period_ConsKinkedR(
         PermGroFac,
         use_infimum=False,
     )
-    # Where the natural limit can bind, unemployment must be the lowest income
-    check_employed_floor(
-        IncShkDstn,
-        BoroCnstArt,
-        calc_boro_const_nat(
-            solution_next.mNrmMin, IncShkDstn, Rboro, PermGroFac, use_infimum=True
-        ),
+    # The natural limit from the shock laws' infima, at the borrowing rate
+    BoroCnstInf = calc_boro_const_nat(
+        solution_next.mNrmMin, IncShkDstn, Rboro, PermGroFac, use_infimum=True
     )
+    # Where the natural limit can bind, unemployment must be the lowest income
+    check_employed_floor(IncShkDstn, BoroCnstArt, BoroCnstInf)
     # Set the minimum allowable (normalized) market resources based on the natural
-    # and artificial borrowing constraints
-    mNrmMinNow = calc_m_nrm_min(BoroCnstArt, BoroCnstNat)
+    # and artificial borrowing constraints. The infima's limit, where it is above
+    # the atoms', is imposed as an artificial constraint is, as in IndShock's
+    # solver: the atoms' limit still anchors the unconstrained consumption
+    # function, where marginal value is infinite
+    mNrmMinNow = max(calc_m_nrm_min(BoroCnstArt, BoroCnstNat), BoroCnstInf)
 
     # Update the bounding MPCs and PDV of human wealth:
     PatFacSave = calc_patience_factor(Rsave, DiscFacEff, CRRA)
@@ -1425,6 +1426,9 @@ def solve_one_period_ConsKinkedR(
         MPCmax=MPCmaxNow,
     )
     return solution_now
+
+
+solve_one_period_ConsKinkedR.imposes_infimum_limit = True
 
 
 def make_basic_CRRA_solution_terminal(CRRA):
