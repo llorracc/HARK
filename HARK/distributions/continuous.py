@@ -1632,6 +1632,37 @@ class LogNormalTruncatedJumpless(ContinuousFrozenDistribution):
         with np.errstate(divide="ignore"):
             return (np.log(x) - self.mu) / self.sigma
 
+    def normal_coordinate(self):
+        """
+        The underlying normal's coordinate z = (ln x - mu) / sigma, in which
+        expected_continuous() integrates this law. The law is not the standard
+        normal in it: its density there is coordinate_density().
+
+        Returns
+        -------
+        bot, top : float
+            The bounds of z: the truncation, and inf.
+        value : callable
+            The law's value at z.
+        coord : callable
+            The coordinate z of a value, -inf at values not above zero.
+        """
+        mu, sigma = self.mu, self.sigma
+        return (
+            self.bot,
+            np.inf,
+            lambda z: np.exp(mu + sigma * z),
+            _log_coordinate(mu, sigma),
+        )
+
+    def coordinate_density(self, z):
+        """
+        The density of the coordinate z = (ln x - mu) / sigma under this law:
+        the standard normal density less its reflection in the bound, zero at
+        the bound and below it.
+        """
+        return self._law.pdf(z)
+
     def moment(self, order):
         """The raw moment E[X**order], for any real order, in closed form."""
         k = float(order)
