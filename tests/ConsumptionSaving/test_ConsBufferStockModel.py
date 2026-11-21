@@ -17,6 +17,8 @@ from HARK.ConsumptionSaving.ConsIndShockModel import IndShockConsumerType
 from HARK.distributions import (
     DiscreteDistribution,
     Lognormal,
+    LogNormalTruncatedJumplessMeanOne,
+    LogNormalTruncatedMeanOne,
     MeanOneLogNormal,
     PointMassAtInfimum,
 )
@@ -1025,10 +1027,36 @@ class testBufferStockContinuousExpectation(unittest.TestCase):
             unconstrained.derivative(m), (y[1] - y[0]) / (x[1] - x[0]), rtol=1e-10
         )
 
+    def test_the_jumpless_law_by_default(self):
+        # Under the continuous expectation the default laws are the jumpless
+        # truncated lognormals, which have no upper bound, so the paper's results
+        # are reported as not established; over the atoms they stay the paper's
+        agent = make_agent(IncShkExpectation="continuous")
+        for law in (agent.PermShkLaw, agent.TranShkLaw):
+            self.assertIsInstance(law, LogNormalTruncatedJumplessMeanOne)
+            self.assertEqual(law.supremum[0], np.inf)
+        agent.check_conditions()
+        results = agent.bilt["BufferStockConditions"]
+        self.assertEqual(results.existence, "not established")
+        self.assertIn("no upper bound", results.existence_basis)
+        atoms = make_agent()
+        self.assertIsInstance(atoms.PermShkLaw, LogNormalTruncatedMeanOne)
+        # Asked for by name, the truncated law serves the continuous path too
+        named = make_agent(
+            IncShkExpectation="continuous",
+            PermShk_tails="truncated",
+            TranShk_tails="truncated",
+        )
+        np.testing.assert_array_equal(
+            named.IncShkDstn[0].atoms, atoms.IncShkDstn[0].atoms
+        )
+
     def test_a_law_with_an_atom_is_refused(self):
-        # With positive income in the event the default permanent law has a
+        # With positive income in the event the truncated permanent law has a
         # point mass at its infimum
-        agent = make_agent(IncShkExpectation="continuous", IncUnemp=0.05)
+        agent = make_agent(
+            IncShkExpectation="continuous", IncUnemp=0.05, PermShk_tails="truncated"
+        )
         with self.assertRaises(ValueError) as caught:
             agent.solve()
         self.assertIn("needs continuous laws", str(caught.exception))
