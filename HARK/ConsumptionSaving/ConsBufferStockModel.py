@@ -514,6 +514,9 @@ def _extend_along_a_line(solution, slope, CRRA, CubicBool):
         if getattr(solution, "mNrmLinearEnd", None) is not None:
             # the continuous expectation's linear first segment, from the limit
             unconstrained.set_linear_segment(0)
+        for segment in getattr(solution.cFunc.functions[0], "power_segments", {}):
+            # and its power segment above a kink at the natural limit
+            unconstrained.set_power_segment(segment)
     else:
         # A point on the line makes the last segment's slope the limiting MPC
         unconstrained = LinearInterp(
