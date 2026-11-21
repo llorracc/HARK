@@ -16,6 +16,7 @@ from HARK.distributions import (
     LogNormalPooledTailsMeanOne,
     LogNormalTaperedMeanOne,
     LogNormalTruncatedMeanOne,
+    LogNormalTruncatedJumplessMeanOne,
     LogNormal,
     PointMassAtInfimum,
     Uniform,
@@ -172,6 +173,7 @@ class BinaryIncShkDstn(DiscreteDistribution):
 # The laws a bounded income shock can follow, by how its tails are treated
 _SHOCK_TAILS = {
     "truncated": LogNormalTruncatedMeanOne,
+    "jumpless": LogNormalTruncatedJumplessMeanOne,
     "tapered": LogNormalTaperedMeanOne,
     "pooled": LogNormalPooledTailsMeanOne,
 }
@@ -203,6 +205,11 @@ def _discretize_mean_one_shock(
     - "truncated", the default: each tail is cut off at its bound, which is the
       law's infimum or supremum, and the law rescaled to mean one
       (LogNormalTruncatedMeanOne.from_sd_log);
+    - "jumpless": the lower tail is cut off at its bound, which is the law's
+      infimum, and the density brought to zero there by subtracting its
+      reflection in the bound, so that it has no jump; there is no upper bound,
+      and a finite one given is refused
+      (LogNormalTruncatedJumplessMeanOne.from_sd_log);
     - "tapered": each tail is tapered to zero at its bound, which is the law's
       infimum or supremum (LogNormalTaperedMeanOne.from_sd_log);
     - "pooled": each tail beyond its bound is pooled at its mean, a point with
@@ -227,7 +234,7 @@ def _discretize_mean_one_shock(
         Upper bound of the log-shock, in standard deviations. The default is None.
     tails : str, optional
         How the tails are treated at the bounds: "truncated" (the default),
-        "tapered" or "pooled".
+        "jumpless", "tapered" or "pooled".
     infimum_prb : float or None, optional
         The probability of the shock's infimum: with it, the law is the bounded
         law with a point mass at its infimum (PointMassAtInfimum), so that its
@@ -260,7 +267,15 @@ def _discretize_mean_one_shock(
             n_approx if sigma > 0.0 else 1, method="equiprobable", tail_N=0
         )
         return law, approx
-    law = _SHOCK_TAILS[tails].from_sd_log(sigma, bot=bot, top=top)
+    if tails == "jumpless":
+        if top is not None:
+            raise ValueError(
+                "A jumpless shock is bounded below only: leave its upper bound "
+                "None or infinite, or choose other tails."
+            )
+        law = _SHOCK_TAILS[tails].from_sd_log(sigma, bot=bot)
+    else:
+        law = _SHOCK_TAILS[tails].from_sd_log(sigma, bot=bot, top=top)
     if infimum_prb:
         if bot is None:
             raise ValueError(
@@ -297,10 +312,12 @@ class LognormPermIncShk(DiscreteDistribution):
         Upper bound of the log-shock, as bot (np.inf is no bound). The default is None.
     tails : str, optional
         How the tails are treated at the bounds: "truncated" (the default),
-        cut off at each bound (LogNormalTruncatedMeanOne); "tapered", to zero
-        at each bound (LogNormalTaperedMeanOne); or "pooled", each tail beyond
-        its bound at its mean (LogNormalPooledTailsMeanOne), which adds an atom
-        at each pooled point.
+        cut off at each bound (LogNormalTruncatedMeanOne); "jumpless", cut off
+        below with the density zero at the bound, and no upper bound
+        (LogNormalTruncatedJumplessMeanOne); "tapered", to zero at each bound
+        (LogNormalTaperedMeanOne); or "pooled", each tail beyond its bound at
+        its mean (LogNormalPooledTailsMeanOne), which adds an atom at each
+        pooled point.
     infimum_prb : float or None, optional
         The probability of the shock's infimum, which needs a lower bound: the
         law is then the bounded law with a point mass at its infimum
@@ -375,7 +392,8 @@ class MixtureTranIncShk(DiscreteDistribution):
         Upper bound of the lognormal part's log, as bot. The default is None.
     tails : str, optional
         How the lognormal part's tails are treated at the bounds: "truncated"
-        (the default), "tapered" or "pooled", as in LognormPermIncShk.
+        (the default), "jumpless", "tapered" or "pooled", as in
+        LognormPermIncShk.
 
     Returns
     -------
@@ -514,7 +532,8 @@ class BufferStockIncShkDstn(DiscreteDistributionLabeled):
         Upper bound of the log transitory shock's lognormal part, as TranShk_inf.
     PermShk_tails : str, optional
         How the permanent shock's tails are treated at its bounds: "truncated"
-        (the default), "tapered" or "pooled". See LognormPermIncShk.
+        (the default), "jumpless", "tapered" or "pooled". See
+        LognormPermIncShk.
     TranShk_tails : str, optional
         How the tails of the transitory shock's lognormal part are treated at
         its bounds, as PermShk_tails.
@@ -751,13 +770,16 @@ def construct_lognormal_income_process_unemployment(
     lognormal part of :math:`\theta`, in standard deviations of the underlying
     normal. PermShk_tails and TranShk_tails say how each shock's tails are
     treated at its bounds: "truncated", the default, cuts each tail off at its
-    bound, which is the shock's infimum or supremum; "tapered" tapers each tail
-    to zero at its bound; "pooled" pools each tail beyond its bound at its mean,
-    a point with the tail's probability that is the shock's infimum or supremum
-    and an atom of the discretization. In each case a bounded shock keeps its
-    mean at one, and PermShkStd[t] or TranShkStd[t] stays the standard
-    deviation of its log. None, the default, or an infinite bound is no bound
-    on that side; with no bounds the income process is as described below.
+    bound, which is the shock's infimum or supremum; "jumpless" cuts the lower
+    tail off at its bound and brings the density to zero there, so that it has
+    no jump, and has no upper bound, so a finite upper bound given with it is
+    refused; "tapered" tapers each tail to zero at its bound; "pooled" pools
+    each tail beyond its bound at its mean, a point with the tail's probability
+    that is the shock's infimum or supremum and an atom of the discretization.
+    In each case a bounded shock keeps its mean at one, and PermShkStd[t] or
+    TranShkStd[t] stays the standard deviation of its log. None, the default,
+    or an infinite bound is no bound on that side; with no bounds the income
+    process is as described below.
 
     .. math::
         \begin{align*}
@@ -830,10 +852,11 @@ def construct_lognormal_income_process_unemployment(
         TranShk_inf.
     PermShk_tails : str
         How the permanent shock's tails are treated at its bounds: "truncated"
-        (the default), "tapered" or "pooled".
+        (the default), "jumpless", "tapered" or "pooled".
     TranShk_tails : str
         How the tails of the transitory shock's lognormal part are treated at
-        its bounds: "truncated" (the default), "tapered" or "pooled".
+        its bounds: "truncated" (the default), "jumpless", "tapered" or
+        "pooled".
     PermShkMinPrb : float or None
         The probability of the permanent shock's infimum in each period whose
         permanent shock has a lower bound: the law is then the bounded law with

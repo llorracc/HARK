@@ -4,7 +4,7 @@ PermShk_inf, PermShk_sup, TranShk_inf and TranShk_sup, in standard deviations of
 the underlying normal, with None (the default) or an infinite bound for no
 bound, and the treatment
 of the tails at the bounds, PermShk_tails and TranShk_tails: "truncated" (the
-default), "tapered" or "pooled".
+default), "jumpless", "tapered" or "pooled".
 """
 
 import unittest
@@ -26,6 +26,7 @@ from HARK.ConsumptionSaving.ConsIndShockModel import (
 from HARK.distributions import (
     LogNormalPooledTailsMeanOne,
     LogNormalTaperedMeanOne,
+    LogNormalTruncatedJumplessMeanOne,
     LogNormalTruncatedMeanOne,
     PointMassAtInfimum,
 )
@@ -44,6 +45,7 @@ POOLED = {"PermShk_tails": "pooled", "TranShk_tails": "pooled"}
 # The laws' bounds at sigma = 0.1 and bounds of three standard deviations
 TAPERED_BOUNDS = (0.736861, 1.343574)
 POOLED_BOUNDS = (0.716774, 1.382230)
+JUMPLESS_BOUND = 0.734030
 
 
 def sd_of_log(law):
@@ -113,6 +115,26 @@ class testIncomeShockTails(unittest.TestCase):
             np.all(shock.atoms > shock.limit["infimum"])
             and np.all(shock.atoms < shock.limit["supremum"])
         )
+
+    def test_permanent_shock_jumpless(self):
+        shock = LognormPermIncShk(0.1, 7, bot=-3.0, tails="jumpless")
+        law = shock.limit["dist"]
+        self.assertIsInstance(law, LogNormalTruncatedJumplessMeanOne)
+        self.assertAlmostEqual(law._law.variance() * law.sigma**2, 0.01, places=15)
+        expected = law.discretize(7, method="equiprobable")
+        np.testing.assert_array_equal(shock.atoms, expected.atoms)
+        self.assertEqual(len(shock.atoms[0]), 7)
+        self.assertAlmostEqual(np.dot(shock.pmv, shock.atoms[0]), 1.0, places=14)
+        # bounded below, where the density is zero, and not above
+        self.assertAlmostEqual(shock.limit["infimum"][0], JUMPLESS_BOUND, places=6)
+        self.assertEqual(shock.limit["supremum"][0], np.inf)
+        self.assertEqual(law.pdf(law.infimum[0]), 0.0)
+        self.assertTrue(np.all(shock.atoms > shock.limit["infimum"]))
+        with self.assertRaises(ValueError):
+            LognormPermIncShk(0.1, 7, bot=-3.0, top=3.0, tails="jumpless")
+        # an infinite upper bound is no bound
+        unbounded = LognormPermIncShk(0.1, 7, bot=-3.0, top=np.inf, tails="jumpless")
+        np.testing.assert_array_equal(unbounded.atoms, shock.atoms)
 
     def test_point_mass_at_the_permanent_shocks_infimum(self):
         shock = LognormPermIncShk(

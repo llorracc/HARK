@@ -2247,8 +2247,8 @@ IndShockConsumerType_IncShkDstn_default = {
     "PermShk_sup": None,  # Upper bound of log permanent shocks, in standard deviations (None --> no bound)
     "TranShk_inf": None,  # Lower bound of log transitory shocks while employed, in standard deviations (None --> no bound)
     "TranShk_sup": None,  # Upper bound of log transitory shocks while employed, in standard deviations (None --> no bound)
-    "PermShk_tails": "truncated",  # Tails of bounded log permanent shocks: "truncated" at each bound, "tapered" to zero there, or "pooled" at their means
-    "TranShk_tails": "truncated",  # Tails of bounded log transitory shocks while employed: "truncated", "tapered" or "pooled"
+    "PermShk_tails": "truncated",  # Tails of bounded log permanent shocks: "truncated" at each bound, "jumpless" (truncated below, the density zero at the bound), "tapered" to zero there, or "pooled" at their means
+    "TranShk_tails": "truncated",  # Tails of bounded log transitory shocks while employed: "truncated", "jumpless", "tapered" or "pooled"
 }
 
 # Default parameters to make aXtraGrid using make_assets_grid
